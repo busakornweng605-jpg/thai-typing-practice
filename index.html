@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>泰文輸入練習 - 第一課：首列 (Home Row)</title>
+    <meta name="description" content="泰文 Kedmanee 鍵盤首列輸入練習，提供高質感與現代化互動設計的打字學習體驗。">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- 引入英文字型（介面）與泰文字型（網頁字體） -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Kanit:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="glass-bg"></div>
+    <div class="circles">
+        <div class="circle circle-1"></div>
+        <div class="circle circle-2"></div>
+    </div>
+
+    <main class="container glass-panel">
+        <header>
+            <h1>泰文輸入練習</h1>
+            <h2>第一課：首列（Home Row - ฟ ห ก ด ่ า ส ว）</h2>
+            <p>請將手指放在鍵盤中央的 ASDF 與 JKL; 區域，準備開始。</p>
+        </header>
+
+        <section class="stats-board">
+            <div class="stat-card">
+                <span class="stat-title">WPM</span>
+                <span class="stat-value" id="stat-wpm">0</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-title">正確率</span>
+                <span class="stat-value" id="stat-accuracy">100%</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-title">錯誤</span>
+                <span class="stat-value" id="stat-errors">0</span>
+            </div>
+        </section>
+
+        <section class="typing-section">
+            <div id="text-display" class="text-display">
+                <!-- Javascript 將動態插入文字 -->
+            </div>
+            <!-- 隱藏的輸入框用於擷取移動裝置或特定輔助輸入（雖然主要依賴全局 keyDown） -->
+            <input type="text" id="hidden-input" class="hidden-input" autocomplete="off" spellcheck="false" autofocus>
+        </section>
+
+        <!-- 虛擬按鍵對應區域（完整鍵盤將由 app.js 動態產生） -->
+        <section class="keyboard-visualizer" id="keyboard">
+        </section>
+
+        <div class="controls">
+            <button id="reset-btn" class="btn btn-primary">重新開始</button>
+        </div>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
