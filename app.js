@@ -113,10 +113,22 @@ async function loadWords() {
 
 function buildCharAudioMap() {
     charAudioMap = {};
+    // 從 words 建立單字元詞彙映射（id 型）
     words.forEach(w => {
         const chars = [...w.thai_word];
         if (chars.length === 1) {
-            charAudioMap[w.thai_word] = w.id;
+            charAudioMap[w.thai_word] = { type: 'word', id: w.id };
+        }
+    });
+    // 為所有鍵盤字元建立 char 音訊映射
+    keyboardLayout.flat().forEach(key => {
+        if (!key.special) {
+            [key.thLower, key.thUpper].forEach(ch => {
+                if (ch && /[฀-๿]/.test(ch) && !charAudioMap[ch]) {
+                    const cp = ch.codePointAt(0).toString(16).padStart(4, '0');
+                    charAudioMap[ch] = { type: 'char', cp };
+                }
+            });
         }
     });
     console.log('charAudioMap built:', Object.keys(charAudioMap).length, 'chars');
@@ -132,6 +144,19 @@ function playAudio(wordId) {
     console.log('[Audio] Playing:', url);
     const audio = new Audio(url);
     audio.play().catch(e => console.error('[Audio] Error:', e));
+}
+
+function playCharAudio(char) {
+    const entry = charAudioMap[char];
+    if (!entry) {
+        if (state.word) playAudio(state.word.id);
+        return;
+    }
+    if (entry.type === 'word') {
+        playAudio(entry.id);
+    } else {
+        new Audio(`audio/char_${entry.cp}.mp3`).play().catch(e => console.error('Char audio:', e));
+    }
 }
 
 function renderKeyboard() {
@@ -245,10 +270,7 @@ function handleKeyDown(e) {
         currentSpan.classList.remove('current', 'error');
         currentSpan.classList.add('correct');
         state.currentIndex++;
-        const audioId = charAudioMap[targetChar] !== undefined
-            ? charAudioMap[targetChar]
-            : state.word.id;
-        playAudio(audioId);
+        playCharAudio(targetChar);
     } else {
         currentSpan.classList.add('error');
         state.errors++;
