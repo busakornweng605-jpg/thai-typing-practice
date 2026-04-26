@@ -117,7 +117,9 @@ function getRandomWord() {
 
 function playAudio(wordId) {
     const url = USE_API ? `/api/audio?id=${wordId}` : `audio/${wordId}.mp3`;
-    new Audio(url).play().catch(e => console.error('Audio:', e));
+    console.log('[Audio] Playing:', url);
+    const audio = new Audio(url);
+    audio.play().catch(e => console.error('[Audio] Error:', e));
 }
 
 function renderKeyboard() {
