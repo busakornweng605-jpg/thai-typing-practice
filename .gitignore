@@ -1,0 +1,9 @@
+thai_words.db
+dist/
+build/
+*.spec
+__pycache__/
+*.pyc
+*.pyo
+
+備份/VoiceData/

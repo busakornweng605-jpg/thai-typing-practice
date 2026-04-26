@@ -15,7 +15,7 @@
     --text-muted: #475569;
 
     --font-sans: 'Inter', sans-serif;
-    --font-thai: 'Kanit', sans-serif;
+    --font-thai: 'Sarabun', sans-serif;
 }
 
 * {
@@ -243,3 +243,16 @@ header p {
 .controls { display: flex; justify-content: center; padding-bottom: 0.5rem; }
 .btn { padding: 0.75rem 2rem; border-radius: 50px; font-size: 1rem; font-weight: 700; cursor: pointer; border: none; background: var(--primary); color: #1e293b; box-shadow: 0 2px 10px var(--primary-glow); transition: all 0.2s ease; }
 .btn:hover { background: #0ea5e9; transform: translateY(-2px); box-shadow: 0 4px 15px var(--primary-glow); }
+
+.translation-display {
+    font-size: 1rem;
+    color: var(--text-secondary);
+    margin-top: 0.75rem;
+    text-align: center;
+    letter-spacing: 1px;
+}
+
+.key.hint-shift {
+    border-color: #f59e0b;
+    box-shadow: 0 0 10px rgba(245, 158, 11, 0.4), inset 0 0 0 1px rgba(245, 158, 11, 0.3);
+}

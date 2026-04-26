@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <!-- 引入英文字型（介面）與泰文字型（網頁字體） -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Kanit:wght@300;400;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -21,8 +21,8 @@
     <main class="container glass-panel">
         <header>
             <h1>泰文輸入練習</h1>
-            <h2>第一課：首列（Home Row - ฟ ห ก ด ่ า ส ว）</h2>
-            <p>請將手指放在鍵盤中央的 ASDF 與 JKL; 區域，準備開始。</p>
+            <h2>Kedmanee 鍵盤自由練習</h2>
+            <p>從 1000 個常用泰文單字中隨機出題，請按對應的 Kedmanee 按鍵輸入。</p>
         </header>
 
         <section class="stats-board">
@@ -42,9 +42,8 @@
 
         <section class="typing-section">
             <div id="text-display" class="text-display">
-                <!-- Javascript 將動態插入文字 -->
             </div>
-            <!-- 隱藏的輸入框用於擷取移動裝置或特定輔助輸入（雖然主要依賴全局 keyDown） -->
+            <div id="translation-display" class="translation-display"></div>
             <input type="text" id="hidden-input" class="hidden-input" autocomplete="off" spellcheck="false" autofocus>
         </section>
 

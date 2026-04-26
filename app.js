@@ -1,16 +1,4 @@
-// 泰文 Kedmanee 首列 (Home Row) 字元集與對應的鍵盤代碼 (event.code)
-const THAI_CHARS = ['ฟ', 'ห', 'ก', 'ด', '่', 'า', 'ส', 'ว'];
-
-// 硬體按鍵代碼映射到泰文字元
-const keyMap = {
-    'KeyA': 'ฟ', 'KeyS': 'ห', 'KeyD': 'ก', 'KeyF': 'ด',
-    'KeyJ': '่', 'KeyK': 'า', 'KeyL': 'ส', 'Semicolon': 'ว',
-    'Space': ' '
-};
-
-// 鍵盤排版資料結構 (根據原圖配置)
 const keyboardLayout = [
-  // Row 1
   [
     { code: 'Backquote', enUpper: '~', enLower: '`', thUpper: '%', thLower: '_', thClassUpper: 'th-vow', thClassLower: 'th-vow' },
     { code: 'Digit1', enUpper: '!', enLower: '1', thUpper: '+', thLower: 'ๅ', thClassUpper: 'th-vow', thClassLower: 'th-vow' },
@@ -27,7 +15,6 @@ const keyboardLayout = [
     { code: 'Equal', enUpper: '+', enLower: '=', thUpper: '๙', thLower: 'ช', thClassUpper: 'th-cons', thClassLower: 'th-cons' },
     { code: 'Backspace', label: 'Backspace', special: true, width: '80px' }
   ],
-  // Row 2
   [
     { code: 'Tab', label: 'Tab', special: true, width: '65px' },
     { code: 'KeyQ', enUpper: 'Q', enLower: 'q', thUpper: '๐', thLower: 'ๆ', thClassUpper: 'th-cons', thClassLower: 'th-cons' },
@@ -44,7 +31,6 @@ const keyboardLayout = [
     { code: 'BracketRight', enUpper: '}', enLower: ']', thUpper: ',', thLower: 'ล', thClassUpper: 'th-cons', thClassLower: 'th-cons' },
     { code: 'Backslash', enUpper: '|', enLower: '\\', thUpper: 'ฅ', thLower: 'ฃ', thClassUpper: 'th-cons', thClassLower: 'th-cons', width: '65px' }
   ],
-  // Row 3 (Home Row)
   [
     { code: 'CapsLock', label: 'Caps', special: true, width: '80px' },
     { code: 'KeyA', enUpper: 'A', enLower: 'a', thUpper: 'ฤ', thLower: 'ฟ', thClassUpper: 'th-vow', thClassLower: 'th-cons' },
@@ -60,7 +46,6 @@ const keyboardLayout = [
     { code: 'Quote', enUpper: '"', enLower: "'", thUpper: '.', thLower: 'ง', thClassUpper: 'th-cons', thClassLower: 'th-cons' },
     { code: 'Enter', label: 'Enter', special: true, width: '90px' }
   ],
-  // Row 4
   [
     { code: 'ShiftLeft', label: 'Shift', special: true, width: '100px' },
     { code: 'KeyZ', enUpper: 'Z', enLower: 'z', thUpper: '(', thLower: 'ผ', thClassUpper: 'th-cons', thClassLower: 'th-cons' },
@@ -75,49 +60,121 @@ const keyboardLayout = [
     { code: 'Slash', enUpper: '?', enLower: '/', thUpper: 'ฦ', thLower: 'ฝ', thClassUpper: 'th-cons', thClassLower: 'th-cons' },
     { code: 'ShiftRight', label: 'Shift', special: true, width: '110px' }
   ],
-  // Row 5
   [
     { code: 'Space', label: 'Space', special: true, width: '300px' }
   ]
 ];
 
-// 狀態管理
+const keyMap = { lower: {}, upper: {} };
+keyboardLayout.flat().forEach(key => {
+    if (!key.special) {
+        if (key.thLower) keyMap.lower[key.code] = key.thLower;
+        if (key.thUpper) keyMap.upper[key.code] = key.thUpper;
+    }
+});
+keyMap.lower['Space'] = ' ';
+keyMap.upper['Space'] = ' ';
+
+let words = [];
+let charAudioMap = {};
 let state = {
+    word: null,
     targetText: '',
     currentIndex: 0,
     startTime: null,
     errors: 0,
     totalKeystrokes: 0,
-    isFinished: false
+    isFinished: false,
+    shiftDown: false,
 };
 
-// DOM 元素
+let USE_API = false;
 const keyboardContainer = document.getElementById('keyboard');
 const textDisplay = document.getElementById('text-display');
+const translationDisplay = document.getElementById('translation-display');
 const statWpm = document.getElementById('stat-wpm');
 const statAccuracy = document.getElementById('stat-accuracy');
 const statErrors = document.getElementById('stat-errors');
 const resetBtn = document.getElementById('reset-btn');
 const hiddenInput = document.getElementById('hidden-input');
 
-// 動態渲染鍵盤
+async function loadWords() {
+    try {
+        const res = await fetch('/api/words');
+        if (!res.ok) throw new Error('no api');
+        words = await res.json();
+        USE_API = true;
+    } catch {
+        const res = await fetch('words.json');
+        words = await res.json();
+        USE_API = false;
+    }
+}
+
+function buildCharAudioMap() {
+    charAudioMap = {};
+    // 從 words 建立單字元詞彙映射（id 型）
+    words.forEach(w => {
+        const chars = [...w.thai_word];
+        if (chars.length === 1) {
+            charAudioMap[w.thai_word] = { type: 'word', id: w.id };
+        }
+    });
+    // 為所有鍵盤字元建立 char 音訊映射
+    keyboardLayout.flat().forEach(key => {
+        if (!key.special) {
+            [key.thLower, key.thUpper].forEach(ch => {
+                if (ch && /[฀-๿]/.test(ch) && !charAudioMap[ch]) {
+                    const cp = ch.codePointAt(0).toString(16).padStart(4, '0');
+                    charAudioMap[ch] = { type: 'char', cp };
+                }
+            });
+        }
+    });
+    console.log('charAudioMap built:', Object.keys(charAudioMap).length, 'chars');
+}
+
+function getRandomWord() {
+    const pool = words.slice(0, Math.min(300, words.length));
+    return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function playAudio(wordId) {
+    const url = USE_API ? `/api/audio?id=${wordId}` : `audio/${wordId}.mp3`;
+    console.log('[Audio] Playing:', url);
+    const audio = new Audio(url);
+    audio.play().catch(e => console.error('[Audio] Error:', e));
+}
+
+function playCharAudio(char) {
+    return new Promise(resolve => {
+        const entry = charAudioMap[char];
+        if (!entry) { resolve(); return; }
+
+        let audio;
+        if (entry.type === 'word') {
+            const url = USE_API ? `/api/audio?id=${entry.id}` : `audio/${entry.id}.mp3`;
+            audio = new Audio(url);
+        } else {
+            audio = new Audio(`audio/char_${entry.cp}.mp3`);
+        }
+        audio.onended = resolve;
+        audio.onerror = resolve;
+        audio.play().catch(() => resolve());
+    });
+}
+
 function renderKeyboard() {
     keyboardContainer.innerHTML = '';
-    
     keyboardLayout.forEach(row => {
         const rowDiv = document.createElement('div');
         rowDiv.className = 'key-row';
-        
         row.forEach(keyData => {
             const keyDiv = document.createElement('div');
             keyDiv.className = 'key';
             if (keyData.special) keyDiv.classList.add('special');
-            keyDiv.dataset.code = keyData.code; // 使用 event.code 作為識別
-            
-            if (keyData.width) {
-                keyDiv.style.width = keyData.width;
-            }
-
+            keyDiv.dataset.code = keyData.code;
+            if (keyData.width) keyDiv.style.width = keyData.width;
             if (keyData.special) {
                 keyDiv.innerText = keyData.label;
             } else {
@@ -130,103 +187,71 @@ function renderKeyboard() {
             }
             rowDiv.appendChild(keyDiv);
         });
-        
         keyboardContainer.appendChild(rowDiv);
     });
 }
 
-// 泰文 Kedmanee 首列教材預設題庫 (參考 TypingStudy 第一課)
-const LESSON_EXERCISES = [
-    "ฟฟ หห กก ดด ่่ าา สส วว",
-    "ฟห กด ่า สว ฟห กด ่า สว",
-    "ฟด หก ่าว ส่ ฟด หก ่าว ส่",
-    "ฟาก หด ่าส สาว หาว ดาว สาว สาด",
-    "หาส ดาส ว่าส ่าว ฟ่า หวา ฟาก",
-    "วาส สาด ดาบ หาก ฟาง สาง ดาง"
-];
-
-// 產生練習字串
-function generateText() {
-    return LESSON_EXERCISES[Math.floor(Math.random() * LESSON_EXERCISES.length)];
-}
-
-// 播放 Google Translator TTS 聲音
-function speakThaiWord(word) {
-    if (!word || word.trim() === '') return;
-    const url = `https://translate.googleapis.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(word)}&tl=th&client=tw-ob`;
-    const audio = new Audio(url);
-    audio.play().catch(e => console.error("TTS Play Error:", e));
-}
-
-// 渲染文字到畫面
 function renderText() {
     textDisplay.innerHTML = '';
-    
     state.targetText.split('').forEach((char, index) => {
         const span = document.createElement('span');
         span.innerText = char;
         span.className = 'char';
-        
         if (index === state.currentIndex) {
             span.classList.add('current');
             highlightKeyHint(char);
         }
-        
         textDisplay.appendChild(span);
     });
-
-    if (state.currentIndex >= state.targetText.length) {
-        removeKeyHints();
-    }
+    if (state.currentIndex >= state.targetText.length) removeKeyHints();
 }
 
-// 虛擬鍵盤提示
 function highlightKeyHint(targetChar) {
     removeKeyHints();
-    
-    let targetCode = '';
-    for (const [code, char] of Object.entries(keyMap)) {
+    for (const [code, char] of Object.entries(keyMap.lower)) {
         if (char === targetChar) {
-            targetCode = code;
-            break;
+            document.querySelector(`.key[data-code="${code}"]`)?.classList.add('hint');
+            return;
         }
     }
-
-    if (targetCode) {
-        const keyElement = document.querySelector(`.key[data-code="${targetCode}"]`);
-        if (keyElement) {
-            keyElement.classList.add('hint');
+    for (const [code, char] of Object.entries(keyMap.upper)) {
+        if (char === targetChar) {
+            document.querySelector(`.key[data-code="${code}"]`)?.classList.add('hint', 'hint-shift');
+            document.querySelectorAll('.key[data-code="ShiftLeft"], .key[data-code="ShiftRight"]')
+                .forEach(el => el.classList.add('hint'));
+            return;
         }
     }
 }
 
 function removeKeyHints() {
-    document.querySelectorAll('.key').forEach(el => el.classList.remove('hint'));
+    document.querySelectorAll('.key').forEach(el => el.classList.remove('hint', 'hint-shift'));
 }
 
-// 計算並更新統計數據
 function updateStats() {
     statErrors.innerText = state.errors;
-    
     let accuracy = 100;
     if (state.totalKeystrokes > 0) {
-        accuracy = Math.max(0, Math.round(((state.totalKeystrokes - state.errors) / state.totalKeystrokes) * 100));
+        accuracy = Math.max(0, Math.round(
+            ((state.totalKeystrokes - state.errors) / state.totalKeystrokes) * 100
+        ));
     }
     statAccuracy.innerText = `${accuracy}%`;
-
     if (state.startTime && state.currentIndex > 0) {
-        const timeElapsed = (new Date() - state.startTime) / 1000 / 60;
-        const wpm = Math.round((state.currentIndex / 5) / timeElapsed);
-        statWpm.innerText = isNaN(wpm) || wpm === Infinity ? 0 : wpm;
+        const elapsed = (new Date() - state.startTime) / 1000 / 60;
+        const wpm = Math.round((state.currentIndex / 5) / elapsed);
+        statWpm.innerText = isNaN(wpm) || !isFinite(wpm) ? 0 : wpm;
     }
 }
 
-// 處理鍵盤按下事件
 function handleKeyDown(e) {
+    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+        state.shiftDown = true;
+        return;
+    }
     if (e.ctrlKey || e.altKey || e.metaKey) return;
     if (e.code === 'Space' || e.code === 'Tab') e.preventDefault();
 
-    // 處理虛擬鍵盤發光視覺效果
     const keyEl = document.querySelector(`.key[data-code="${e.code}"]`);
     if (keyEl) {
         keyEl.classList.add('active');
@@ -235,82 +260,77 @@ function handleKeyDown(e) {
 
     if (state.isFinished) return;
 
-    let mappedChar = keyMap[e.code];
-    if (!mappedChar && e.key === state.targetText[state.currentIndex]) {
-        mappedChar = e.key;
-    }
-
+    const layer = state.shiftDown ? keyMap.upper : keyMap.lower;
+    const mappedChar = layer[e.code];
     if (!mappedChar) return;
 
     if (!state.startTime) state.startTime = new Date();
 
     state.totalKeystrokes++;
     const targetChar = state.targetText[state.currentIndex];
-    const spanElements = document.querySelectorAll('.char');
-    const currentSpan = spanElements[state.currentIndex];
+    const spans = document.querySelectorAll('.char');
+    const currentSpan = spans[state.currentIndex];
 
     if (mappedChar === targetChar) {
         currentSpan.classList.remove('current', 'error');
         currentSpan.classList.add('correct');
         state.currentIndex++;
 
-        // 當正確輸入非空白字元時，即時發出該字元的發音
-        if (targetChar !== ' ') {
-            speakThaiWord(targetChar);
+        if (state.currentIndex >= state.targetText.length) {
+            // 全部輸入正確：等字元音訊播完 → 1秒後播單字音訊 → 2秒後換下一題
+            state.isFinished = true;
+            updateStats();
+            playCharAudio(targetChar).then(() => {
+                setTimeout(() => {
+                    playAudio(state.word.id);
+                    setTimeout(() => initGame(), 2000);
+                }, 1000);
+            });
+            return;
         }
 
-        // 當正確輸入「空白鍵」時，擷取前一個完整的詞透過 Google TTS 播放聲音 (作為單詞確認)
-        if (targetChar === ' ') {
-            let start = state.currentIndex - 2;
-            while (start >= 0 && state.targetText[start] !== ' ') {
-                start--;
-            }
-            const word = state.targetText.substring(start + 1, state.currentIndex - 1);
-            if (word) {
-                speakThaiWord(word);
-            }
-        }
+        playCharAudio(targetChar);
+        spans[state.currentIndex]?.classList.add('current');
+        highlightKeyHint(state.targetText[state.currentIndex]);
     } else {
         currentSpan.classList.add('error');
         state.errors++;
-        
         document.body.style.backgroundColor = '#1e1b2e';
         setTimeout(() => document.body.style.backgroundColor = '', 150);
     }
 
     updateStats();
-
-    if (state.currentIndex >= state.targetText.length) {
-        state.isFinished = true;
-        setTimeout(() => initGame(), 1500);
-    } else {
-        if (state.currentIndex < spanElements.length) {
-            spanElements[state.currentIndex].classList.add('current');
-            highlightKeyHint(state.targetText[state.currentIndex]);
-        }
-    }
 }
 
-document.addEventListener('click', () => hiddenInput.focus());
+window.addEventListener('keyup', e => {
+    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') state.shiftDown = false;
+});
 
 function initGame() {
-    state.targetText = generateText(10);
+    if (words.length === 0) return;
+    state.word = getRandomWord();
+    state.targetText = state.word.thai_word;
     state.currentIndex = 0;
     state.startTime = null;
     state.errors = 0;
     state.totalKeystrokes = 0;
     state.isFinished = false;
+    state.shiftDown = false;
 
     statWpm.innerText = '0';
     statAccuracy.innerText = '100%';
     statErrors.innerText = '0';
+
+    if (translationDisplay) {
+        translationDisplay.innerText = `${state.word.chinese} / ${state.word.english}`;
+    }
 
     renderText();
     hiddenInput.value = '';
     hiddenInput.focus();
 }
 
-// 綁定事件
+document.addEventListener('click', () => hiddenInput.focus());
 window.addEventListener('keydown', handleKeyDown);
 resetBtn.addEventListener('click', () => {
     resetBtn.style.transform = 'scale(0.95)';
@@ -318,6 +338,8 @@ resetBtn.addEventListener('click', () => {
     initGame();
 });
 
-// 啟動程式 (順序: 渲染鍵盤 -> 初始化遊戲)
 renderKeyboard();
-initGame();
+loadWords().then(() => {
+    buildCharAudioMap();
+    initGame();
+});
