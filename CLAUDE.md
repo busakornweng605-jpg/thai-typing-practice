@@ -50,3 +50,32 @@ npx serve .
 
 新增課程：在 `LESSON_EXERCISES` 陣列新增字串，並更新 `keyMap` 以支援新字元。
 新增鍵盤映射：同步更新 `keyMap`（輸入邏輯）和 `keyboardLayout`（視覺顯示）。
+
+## 常用命令
+
+### 本地開發
+```powershell
+# 靜態測試（GitHub Pages 模式，音訊來自 audio/ 資料夾）
+python -m http.server 8000
+
+# 桌面視窗模式（需 pywebview + thai_words.db）
+python server.py
+```
+
+### 資料匯出（DB 有更新時執行）
+```powershell
+# 匯出單字資料
+python export_db.py
+
+# 下載字元音訊（首次或新增字元時）
+python export_char_audio.py
+```
+
+### 打包桌面版
+```bat
+build.bat    # 產生 dist/run.exe（需安裝 PyInstaller：pip install pyinstaller）
+```
+
+### GitHub Pages 部署
+推送到 main 分支後，GitHub Actions 自動部署。
+需在 GitHub repo Settings → Pages → Source 選擇 GitHub Actions。
