@@ -6,5 +6,5 @@ __pycache__/
 *.pyc
 *.pyo
 
-備份/VoiceData/
+備份/
 char_audio/
