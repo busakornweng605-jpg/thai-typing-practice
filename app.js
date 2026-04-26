@@ -76,6 +76,7 @@ keyMap.lower['Space'] = ' ';
 keyMap.upper['Space'] = ' ';
 
 let words = [];
+let charAudioMap = {};
 let state = {
     word: null,
     targetText: '',
@@ -108,6 +109,17 @@ async function loadWords() {
         words = await res.json();
         USE_API = false;
     }
+}
+
+function buildCharAudioMap() {
+    charAudioMap = {};
+    words.forEach(w => {
+        const chars = [...w.thai_word];
+        if (chars.length === 1) {
+            charAudioMap[w.thai_word] = w.id;
+        }
+    });
+    console.log('charAudioMap built:', Object.keys(charAudioMap).length, 'chars');
 }
 
 function getRandomWord() {
@@ -233,6 +245,10 @@ function handleKeyDown(e) {
         currentSpan.classList.remove('current', 'error');
         currentSpan.classList.add('correct');
         state.currentIndex++;
+        const audioId = charAudioMap[targetChar] !== undefined
+            ? charAudioMap[targetChar]
+            : state.word.id;
+        playAudio(audioId);
     } else {
         currentSpan.classList.add('error');
         state.errors++;
@@ -244,7 +260,6 @@ function handleKeyDown(e) {
 
     if (state.currentIndex >= state.targetText.length) {
         state.isFinished = true;
-        playAudio(state.word.id);
         setTimeout(() => initGame(), 2000);
     } else {
         spans[state.currentIndex]?.classList.add('current');
@@ -289,4 +304,7 @@ resetBtn.addEventListener('click', () => {
 });
 
 renderKeyboard();
-loadWords().then(() => initGame());
+loadWords().then(() => {
+    buildCharAudioMap();
+    initGame();
+});
