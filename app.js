@@ -135,7 +135,7 @@ function buildCharAudioMap() {
 }
 
 function getRandomWord() {
-    const pool = words.slice(0, Math.min(300, words.length));
+    const pool = words.slice(0, Math.min(1000, words.length));
     return pool[Math.floor(Math.random() * pool.length)];
 }
 
