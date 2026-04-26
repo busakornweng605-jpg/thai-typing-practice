@@ -147,16 +147,21 @@ function playAudio(wordId) {
 }
 
 function playCharAudio(char) {
-    const entry = charAudioMap[char];
-    if (!entry) {
-        if (state.word) playAudio(state.word.id);
-        return;
-    }
-    if (entry.type === 'word') {
-        playAudio(entry.id);
-    } else {
-        new Audio(`audio/char_${entry.cp}.mp3`).play().catch(e => console.error('Char audio:', e));
-    }
+    return new Promise(resolve => {
+        const entry = charAudioMap[char];
+        if (!entry) { resolve(); return; }
+
+        let audio;
+        if (entry.type === 'word') {
+            const url = USE_API ? `/api/audio?id=${entry.id}` : `audio/${entry.id}.mp3`;
+            audio = new Audio(url);
+        } else {
+            audio = new Audio(`audio/char_${entry.cp}.mp3`);
+        }
+        audio.onended = resolve;
+        audio.onerror = resolve;
+        audio.play().catch(() => resolve());
+    });
 }
 
 function renderKeyboard() {
@@ -270,7 +275,23 @@ function handleKeyDown(e) {
         currentSpan.classList.remove('current', 'error');
         currentSpan.classList.add('correct');
         state.currentIndex++;
+
+        if (state.currentIndex >= state.targetText.length) {
+            // 全部輸入正確：等字元音訊播完 → 1秒後播單字音訊 → 2秒後換下一題
+            state.isFinished = true;
+            updateStats();
+            playCharAudio(targetChar).then(() => {
+                setTimeout(() => {
+                    playAudio(state.word.id);
+                    setTimeout(() => initGame(), 2000);
+                }, 1000);
+            });
+            return;
+        }
+
         playCharAudio(targetChar);
+        spans[state.currentIndex]?.classList.add('current');
+        highlightKeyHint(state.targetText[state.currentIndex]);
     } else {
         currentSpan.classList.add('error');
         state.errors++;
@@ -279,14 +300,6 @@ function handleKeyDown(e) {
     }
 
     updateStats();
-
-    if (state.currentIndex >= state.targetText.length) {
-        state.isFinished = true;
-        setTimeout(() => initGame(), 2000);
-    } else {
-        spans[state.currentIndex]?.classList.add('current');
-        highlightKeyHint(state.targetText[state.currentIndex]);
-    }
 }
 
 window.addEventListener('keyup', e => {
