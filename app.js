@@ -87,7 +87,7 @@ let state = {
     shiftDown: false,
 };
 
-const IS_LOCAL = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+let USE_API = false;
 const keyboardContainer = document.getElementById('keyboard');
 const textDisplay = document.getElementById('text-display');
 const translationDisplay = document.getElementById('translation-display');
@@ -98,9 +98,16 @@ const resetBtn = document.getElementById('reset-btn');
 const hiddenInput = document.getElementById('hidden-input');
 
 async function loadWords() {
-    const url = IS_LOCAL ? '/api/words' : 'words.json';
-    const res = await fetch(url);
-    words = await res.json();
+    try {
+        const res = await fetch('/api/words');
+        if (!res.ok) throw new Error('no api');
+        words = await res.json();
+        USE_API = true;
+    } catch {
+        const res = await fetch('words.json');
+        words = await res.json();
+        USE_API = false;
+    }
 }
 
 function getRandomWord() {
@@ -109,7 +116,7 @@ function getRandomWord() {
 }
 
 function playAudio(wordId) {
-    const url = IS_LOCAL ? `/api/audio?id=${wordId}` : `audio/${wordId}.mp3`;
+    const url = USE_API ? `/api/audio?id=${wordId}` : `audio/${wordId}.mp3`;
     new Audio(url).play().catch(e => console.error('Audio:', e));
 }
 
