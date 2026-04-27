@@ -82,11 +82,21 @@ let state = {
     targetText: '',
     currentIndex: 0,
     startTime: null,
-    errors: 0,
-    totalKeystrokes: 0,
+    errors: 0,           // 當前單字的錯誤按鍵數（單字層級）
+    totalKeystrokes: 0,  // 當前單字的總按鍵數（單字層級）
     isFinished: false,
     shiftDown: false,
 };
+
+// ---- Session Pool 輪次狀態 ----
+let sessionPool = [];          // 本輪練習單字陣列（有序）
+let sessionIndex = 0;          // 目前是第幾個（0-based）
+let wordResults = [];          // [{word, hasError}] 每字結果
+let masteredSet = new Set();   // 已熟練的 word id
+let unpractisedPool = [];      // 尚未被任何輪次抽到的單字
+let wordErrorFlag = false;     // 本字是否有錯誤按鍵（單字層級旗標）
+let roundErrors = 0;           // 本輪累計錯誤按鍵數
+let roundTotalKeystrokes = 0;  // 本輪累計總按鍵數
 
 let USE_API = false;
 const keyboardContainer = document.getElementById('keyboard');
@@ -134,9 +144,133 @@ function buildCharAudioMap() {
     console.log('charAudioMap built:', Object.keys(charAudioMap).length, 'chars');
 }
 
-function getRandomWord() {
-    const pool = words.slice(0, Math.min(1000, words.length));
-    return pool[Math.floor(Math.random() * pool.length)];
+// ---- 輔助函式 ----
+
+function shuffleArray(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+}
+
+function saveProgress() {
+    try {
+        localStorage.setItem('thaiTypingProgress', JSON.stringify({
+            masteredIds: [...masteredSet],
+            unpractisedIds: unpractisedPool.map(w => w.id),
+        }));
+    } catch (e) {}
+}
+
+function loadProgress() {
+    try {
+        const raw = localStorage.getItem('thaiTypingProgress');
+        if (!raw) return false;
+        const data = JSON.parse(raw);
+        const idToWord = new Map(words.map(w => [w.id, w]));
+        masteredSet = new Set(data.masteredIds.filter(id => idToWord.has(id)));
+        unpractisedPool = data.unpractisedIds.map(id => idToWord.get(id)).filter(Boolean);
+        return unpractisedPool.length > 0 || masteredSet.size > 0;
+    } catch {
+        return false;
+    }
+}
+
+// ---- Session / Round 管理 ----
+
+function startSession() {
+    const total = Math.min(1000, words.length);
+    const pool1000 = words.slice(0, total);
+
+    if (loadProgress() && unpractisedPool.length > 0) {
+        // 從 localStorage 恢復進度
+        const nextPool = unpractisedPool.splice(0, Math.min(100, unpractisedPool.length));
+        startRound(nextPool);
+    } else {
+        // 全新開始
+        masteredSet = new Set();
+        unpractisedPool = [...pool1000];
+        shuffleArray(unpractisedPool);
+        startRound(unpractisedPool.splice(0, Math.min(100, unpractisedPool.length)));
+    }
+}
+
+function startRound(pool) {
+    sessionPool = pool;
+    sessionIndex = 0;
+    wordResults = [];
+    roundErrors = 0;
+    roundTotalKeystrokes = 0;
+    initGame();
+}
+
+function advanceSession() {
+    // 記錄本字結果（在 playCharAudio 播放後、進入下一字前）
+    wordResults.push({ word: state.word, hasError: wordErrorFlag });
+    roundErrors += state.errors;
+    roundTotalKeystrokes += state.totalKeystrokes;
+    sessionIndex++;
+
+    if (sessionIndex >= sessionPool.length) {
+        endRound();
+    } else {
+        initGame();
+    }
+}
+
+function endRound() {
+    const masteredThisRound = [];
+    const failedThisRound = [];
+
+    wordResults.forEach(({ word, hasError }) => {
+        if (hasError) {
+            failedThisRound.push(word);
+        } else {
+            masteredThisRound.push(word);
+            masteredSet.add(word.id);
+        }
+    });
+
+    const total = Math.min(1000, words.length);
+
+    // 全部 1000 個熟練 → 重置循環
+    if (masteredSet.size >= total) {
+        masteredSet = new Set();
+        unpractisedPool = [...words.slice(0, total)];
+        shuffleArray(unpractisedPool);
+        saveProgress();
+        startRound(unpractisedPool.splice(0, Math.min(100, unpractisedPool.length)));
+        return;
+    }
+
+    saveProgress();
+
+    if (failedThisRound.length === 0) {
+        // 本輪全部零錯誤 → 從未練習池全新抽
+        if (unpractisedPool.length === 0) {
+            startSession();
+            return;
+        }
+        startRound(unpractisedPool.splice(0, Math.min(100, unpractisedPool.length)));
+    } else {
+        // 一般情況：錯誤字保留 + 補充新字
+        const needed = 100 - failedThisRound.length;
+        const supplement = needed > 0
+            ? unpractisedPool.splice(0, Math.min(needed, unpractisedPool.length))
+            : [];
+        const nextPool = [...failedThisRound, ...supplement];
+        shuffleArray(nextPool);
+        startRound(nextPool);
+    }
+}
+
+function updateRoundProgress() {
+    const progressEl = document.getElementById('round-progress');
+    if (progressEl) {
+        const current = Math.min(sessionIndex + 1, sessionPool.length);
+        progressEl.innerText = `第 ${current} / ${sessionPool.length} 個`;
+    }
+    statWpm.innerText = unpractisedPool.length;
 }
 
 function playAudio(wordId) {
@@ -229,19 +363,22 @@ function removeKeyHints() {
 }
 
 function updateStats() {
-    statErrors.innerText = state.errors;
+    // 本輪累計（含當前單字進行中的數值）
+    const totalErrors = roundErrors + state.errors;
+    const totalKeystrokes = roundTotalKeystrokes + state.totalKeystrokes;
+
+    statErrors.innerText = totalErrors;
+
     let accuracy = 100;
-    if (state.totalKeystrokes > 0) {
+    if (totalKeystrokes > 0) {
         accuracy = Math.max(0, Math.round(
-            ((state.totalKeystrokes - state.errors) / state.totalKeystrokes) * 100
+            ((totalKeystrokes - totalErrors) / totalKeystrokes) * 100
         ));
     }
     statAccuracy.innerText = `${accuracy}%`;
-    if (state.startTime && state.currentIndex > 0) {
-        const elapsed = (new Date() - state.startTime) / 1000 / 60;
-        const wpm = Math.round((state.currentIndex / 5) / elapsed);
-        statWpm.innerText = isNaN(wpm) || !isFinite(wpm) ? 0 : wpm;
-    }
+
+    // 剩餘未練習單字數（由 updateRoundProgress 也會更新，此處同步確保一致）
+    statWpm.innerText = unpractisedPool.length;
 }
 
 function handleKeyDown(e) {
@@ -277,13 +414,13 @@ function handleKeyDown(e) {
         state.currentIndex++;
 
         if (state.currentIndex >= state.targetText.length) {
-            // 全部輸入正確：等字元音訊播完 → 1秒後播單字音訊 → 2秒後換下一題
+            // 全部輸入正確：等字元音訊播完 → 1秒後播單字音訊 → 2秒後進下一字
             state.isFinished = true;
             updateStats();
             playCharAudio(targetChar).then(() => {
                 setTimeout(() => {
                     playAudio(state.word.id);
-                    setTimeout(() => initGame(), 2000);
+                    setTimeout(() => advanceSession(), 2000);
                 }, 1000);
             });
             return;
@@ -295,6 +432,7 @@ function handleKeyDown(e) {
     } else {
         currentSpan.classList.add('error');
         state.errors++;
+        wordErrorFlag = true;   // 標記本字有錯誤按鍵
         document.body.style.backgroundColor = '#1e1b2e';
         setTimeout(() => document.body.style.backgroundColor = '', 150);
     }
@@ -307,19 +445,21 @@ window.addEventListener('keyup', e => {
 });
 
 function initGame() {
-    if (words.length === 0) return;
-    state.word = getRandomWord();
+    if (words.length === 0 || sessionPool.length === 0) return;
+
+    state.word = sessionPool[sessionIndex];
     state.targetText = state.word.thai_word;
     state.currentIndex = 0;
     state.startTime = null;
-    state.errors = 0;
-    state.totalKeystrokes = 0;
+    state.errors = 0;           // 單字層級重置
+    state.totalKeystrokes = 0;  // 單字層級重置
     state.isFinished = false;
     state.shiftDown = false;
 
-    statWpm.innerText = '0';
-    statAccuracy.innerText = '100%';
-    statErrors.innerText = '0';
+    wordErrorFlag = false;      // 每個新字重置錯誤旗標
+
+    updateRoundProgress();      // 更新「第 X / N 個」與剩餘數
+    updateStats();              // 更新正確率與累計錯誤（輪次層級）
 
     if (translationDisplay) {
         translationDisplay.innerText = `${state.word.chinese} / ${state.word.english}`;
@@ -335,11 +475,11 @@ window.addEventListener('keydown', handleKeyDown);
 resetBtn.addEventListener('click', () => {
     resetBtn.style.transform = 'scale(0.95)';
     setTimeout(() => resetBtn.style.transform = '', 100);
-    initGame();
+    startSession();
 });
 
 renderKeyboard();
 loadWords().then(() => {
     buildCharAudioMap();
-    initGame();
+    startSession();
 });
