@@ -52,7 +52,7 @@ const CONSONANT_INFO = {
 };
 
 const LESSON_CONFIG = {
-    1: { subtitle: '44個泰文子音鍵位練習',     desc: '先播音再輸入，所有子音全部無誤完成後自動進入下一課。' },
+    1: { subtitle: '44個泰文子音鍵位練習',     desc: '由 ก→ฮ 序列每輪 10 個，錯誤回填下一輪，全 44 個無誤後自動進入下一課。' },
     2: { subtitle: '泰文母音鍵位練習',         desc: '先播音再輸入，所有母音全部無誤完成後自動進入下一課。' },
     3: { subtitle: '子音+母音組合練習',         desc: '所有子音×母音組合（每輪10個），全部無誤完成後自動進入下一課。' },
     4: { subtitle: '子音+母音+聲調組合練習',   desc: '所有子音×母音×聲調組合（每輪10個），全部無誤完成後自動進入下一課。' },
@@ -61,8 +61,8 @@ const LESSON_CONFIG = {
 
 let currentLesson = 1;
 let masteredChars = new Set();       // 課程 1-2：已無誤完成的字符
-let charPool = [];
-let charPoolIndex = 0;               // 課程 1：序列輪流的指標
+let charPool = [];                   // 課程 1-2 完整池（保留順序，供熟練度與重建用）
+let charUnpractisedPool = [];        // 課程 1-2 待練習池（每輪 splice 取前 N 個）
 let comboMasteredSet = new Set();    // 課程 3-4：已無誤完成的組合（thai_word 為 key）
 let comboUnpractisedPool = [];       // 課程 3-4：尚未練習的組合
 let comboPoolTotal = 0;              // 課程 3-4：完整組合池大小
@@ -244,12 +244,15 @@ function initLCC() {
 
 function buildCharPool(lesson) {
     if (lesson === 1) {
-        // 課程 1：依 CONSONANT_INFO 的傳統順序（ก→ฮ）建池，每個子音附名稱+拼音+中文釋義
+        // 課程 1：依 CONSONANT_INFO 的傳統順序（ก→ฮ）建池
+        // id 對應到子音名稱（如 ไก่）的 word.id，用於播放名稱音訊
+        const nameToId = new Map(words.map(w => [w.thai_word, w.id]));
         return Object.entries(CONSONANT_INFO).map(([char, info]) => ({
-            id: null,
+            id: nameToId.get(info.name) ?? null,
             thai_word: char,
             chinese: `${char}.${info.name} (${info.rom}) ${info.meaning}・${info.cls}`,
             english: '',
+            nameWord: info.name,
         }));
     }
     // 課程 2：母音（從 keyboardLayout 提取，去重）
@@ -326,6 +329,20 @@ async function playComboAudio(text) {
     }
 }
 
+/** 課程音訊播放：課程 1 播子音名稱（หนู / ใบไม้），其餘課程播字符序列 */
+function playLessonAudio() {
+    if (currentLesson === 1 && state.word && state.word.id) {
+        return new Promise(resolve => {
+            const url = USE_API ? `/api/audio?id=${state.word.id}` : `audio/${state.word.id}.mp3`;
+            const audio = new Audio(url);
+            audio.addEventListener('ended', resolve, { once: true });
+            audio.addEventListener('error', resolve, { once: true });
+            audio.play().catch(resolve);
+        });
+    }
+    return playComboAudio(state.targetText);
+}
+
 function updateLessonUI() {
     const cfg = LESSON_CONFIG[currentLesson];
     const subtitleEl = document.getElementById('lesson-subtitle');
@@ -371,7 +388,6 @@ function loadProgress() {
 function startSession() {
     updateLessonUI();
     masteredChars.clear();
-    charPoolIndex = 0;
 
     if (currentLesson === 5) {
         const total = Math.min(1000, words.length);
@@ -384,7 +400,13 @@ function startSession() {
             startRound(unpractisedPool.splice(0, Math.min(ROUND_SIZE, unpractisedPool.length)));
         }
     } else {
-        charPool = (currentLesson <= 2) ? buildCharPool(currentLesson) : [];
+        if (currentLesson <= 2) {
+            charPool = buildCharPool(currentLesson);
+            charUnpractisedPool = [...charPool];   // 序列待練池，依序 splice 消費
+        } else {
+            charPool = [];
+            charUnpractisedPool = [];
+        }
         if (currentLesson >= 3) {
             comboMasteredSet.clear();
             const fullPool = buildFullComboPool(currentLesson);
@@ -398,12 +420,12 @@ function startSession() {
 
 function startCharRound() {
     if (currentLesson === 1 || currentLesson === 2) {
-        // 課程 1-2：依 charPool 順序輪流，每輪取 ROUND_SIZE 個（指標循環）
-        const pool = [];
-        for (let i = 0; i < ROUND_SIZE; i++) {
-            pool.push(charPool[charPoolIndex % charPool.length]);
-            charPoolIndex++;
+        // 課程 1-2：從待練池前端 splice 取 ROUND_SIZE 個（保持序列）
+        if (charUnpractisedPool.length === 0) {
+            // 池空但未全熟練 → 重建（過濾已熟練）
+            charUnpractisedPool = charPool.filter(item => !masteredChars.has(item.thai_word));
         }
+        const pool = charUnpractisedPool.splice(0, Math.min(ROUND_SIZE, charUnpractisedPool.length));
         startRound(pool);
     } else if (currentLesson === 3 || currentLesson === 4) {
         if (comboUnpractisedPool.length === 0) {
@@ -447,6 +469,41 @@ function advanceSession() {
 
 function endRound() {
     if (currentLesson !== 5) {
+        if (currentLesson === 1 || currentLesson === 2) {
+            // ── 課程 1-2：序列 + 錯題回填 + 全熟練後跳課 ──
+            const failedThisRound = [];
+            wordResults.forEach(({ word, hasError }) => {
+                if (hasError) {
+                    masteredChars.delete(word.thai_word);
+                    failedThisRound.push(word);
+                } else {
+                    masteredChars.add(word.thai_word);
+                }
+            });
+            // 全部 charPool 都無誤完成 → 跳下一課
+            if (masteredChars.size >= charPool.length) {
+                masteredChars.clear();
+                charUnpractisedPool = [];
+                currentLesson++;
+                const sel = document.getElementById('lesson-select');
+                if (sel) sel.value = String(currentLesson);
+                setTimeout(() => startSession(), 900);
+                return;
+            }
+            // 下一輪：失敗的（保持序列順序在前）+ 從待練池補足
+            const needed = ROUND_SIZE - failedThisRound.length;
+            const supplement = needed > 0
+                ? charUnpractisedPool.splice(0, Math.min(needed, charUnpractisedPool.length))
+                : [];
+            let nextPool = [...failedThisRound, ...supplement];
+            if (nextPool.length === 0) {
+                // 待練池與失敗都空但未全熟練 → 重建過濾池再取
+                charUnpractisedPool = charPool.filter(item => !masteredChars.has(item.thai_word));
+                nextPool = charUnpractisedPool.splice(0, Math.min(ROUND_SIZE, charUnpractisedPool.length));
+            }
+            startRound(nextPool);
+            return;
+        }
         if (currentLesson >= 3) {
             // 課程 3-4：追蹤每個組合的熟練度
             wordResults.forEach(({ word, hasError }) => {
@@ -468,7 +525,7 @@ function endRound() {
             }
             // 失敗組合不立即重試，等池清空時 startCharRound 重建（過濾已熟練）會自動讓未熟練的依序回來
         }
-        // 課程 1-2 的跳課由 handleKeyDown 處理，這裡只繼續下一輪
+        // 課程 3-4：繼續下一輪（startCharRound 會在池空時自動重建）
         startCharRound();
         return;
     }
@@ -522,8 +579,8 @@ function updateRoundProgress() {
         statWpm.innerText = unpractisedPool.length;
         if (remainingLabel) remainingLabel.innerText = '剩餘';
     } else if (currentLesson <= 2) {
-        statWpm.innerText = charPool.length;
-        if (remainingLabel) remainingLabel.innerText = '字符數';
+        statWpm.innerText = charUnpractisedPool.length;
+        if (remainingLabel) remainingLabel.innerText = '剩餘';
     } else {
         statWpm.innerText = comboUnpractisedPool.length;
         if (remainingLabel) remainingLabel.innerText = '剩餘組合';
@@ -673,27 +730,9 @@ function handleKeyDown(e) {
             state.isFinished = true;
             updateStats();
             if (currentLesson !== 5) {
-                // 字符課程：播音確認 → 課程 1-2 追蹤逐字熟練度 → 800ms 後進下一題
-                const noError = !wordErrorFlag;
-                playComboAudio(state.targetText).then(() => {
-                    if (currentLesson <= 2) {
-                        // 課程 1-2：追蹤每個字符是否無誤完成
-                        if (noError) {
-                            masteredChars.add(state.targetText);
-                        } else {
-                            masteredChars.delete(state.targetText);
-                        }
-                        // 全部字符都無誤完成 → 跳下一課
-                        if (masteredChars.size >= charPool.length) {
-                            masteredChars.clear();
-                            currentLesson++;
-                            const sel = document.getElementById('lesson-select');
-                            if (sel) sel.value = String(currentLesson);
-                            setTimeout(() => startSession(), 900);
-                            return;
-                        }
-                    }
-                    // 課程 3-4 的跳課由 endRound() 處理（整輪零錯誤）
+                // 字符課程：播音確認 → 800ms 後進下一題
+                // 熟練度與跳課判斷統一交由 endRound 處理（整輪結算）
+                playLessonAudio().then(() => {
                     setTimeout(() => advanceSession(), 800);
                 });
             } else {
@@ -757,7 +796,7 @@ function initGame() {
 
     // 字符課程：初始化時先播放音訊，再等使用者輸入
     if (currentLesson !== 5) {
-        playComboAudio(state.targetText);
+        playLessonAudio();
     }
 }
 
