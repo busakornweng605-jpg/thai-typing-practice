@@ -3,10 +3,16 @@ import sys
 import json
 import sqlite3
 import threading
+import urllib.parse
+import urllib.request
 from urllib.parse import urlparse, parse_qs
 from http.server import SimpleHTTPRequestHandler
 import socketserver
 import webview
+
+# 簡易記憶體快取：避免重複 TTS 請求 Google
+_tts_cache = {}
+_TTS_CACHE_MAX = 500
 
 
 def get_base_path():
@@ -54,6 +60,29 @@ def query_audio(word_id):
     return None
 
 
+def fetch_tts(text):
+    """從 Google Translate TTS 取得泰文整體合成音（記憶體快取）。"""
+    if not text:
+        return None
+    if text in _tts_cache:
+        return _tts_cache[text]
+    url = (
+        'https://translate.googleapis.com/translate_tts'
+        f'?ie=UTF-8&q={urllib.parse.quote(text)}&tl=th&client=tw-ob'
+    )
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = resp.read()
+    except Exception:
+        return None
+    # 控制快取大小
+    if len(_tts_cache) >= _TTS_CACHE_MAX:
+        _tts_cache.pop(next(iter(_tts_cache)))
+    _tts_cache[text] = data
+    return data
+
+
 def query_cons_audio(cp_hex):
     """依 codepoint hex（如 '0e0d'）查 cons_audio 表的字母誦讀音訊。"""
     try:
@@ -80,6 +109,8 @@ class BackendHandler(SimpleHTTPRequestHandler):
             self._serve_words()
         elif self.path.startswith("/api/cons_audio"):
             self._serve_cons_audio()
+        elif self.path.startswith("/api/tts"):
+            self._serve_tts()
         elif self.path.startswith("/api/audio"):
             self._serve_audio()
         else:
@@ -109,6 +140,24 @@ class BackendHandler(SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "max-age=86400")
         self.end_headers()
         self.wfile.write(audio_data)
+
+    def _serve_tts(self):
+        """代理 Google TTS：給定文字回傳泰文整體合成音 mp3。"""
+        params = parse_qs(urlparse(self.path).query)
+        text = params.get("text", [None])[0]
+        if not text:
+            self.send_error(400, "Missing text")
+            return
+        data = fetch_tts(text)
+        if not data:
+            self.send_error(502, "TTS upstream failed")
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "audio/mpeg")
+        self.send_header("Content-Length", len(data))
+        self.send_header("Cache-Control", "max-age=86400")
+        self.end_headers()
+        self.wfile.write(data)
 
     def _serve_cons_audio(self):
         params = parse_qs(urlparse(self.path).query)

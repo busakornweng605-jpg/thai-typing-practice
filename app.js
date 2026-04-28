@@ -335,7 +335,26 @@ async function playComboAudio(text) {
     }
 }
 
-/** 課程音訊播放：課程 1 播子音字母誦讀（如「ยอ หญิง」「นอ หนู」），其餘課程播字符序列 */
+/** Google TTS 整體合成播放（將整段文字當作一個泰文詞彙朗讀） */
+function playComboTTS(text) {
+    return new Promise(resolve => {
+        const q = encodeURIComponent(text);
+        const url = USE_API
+            ? `/api/tts?text=${q}`
+            : `https://translate.googleapis.com/translate_tts?ie=UTF-8&q=${q}&tl=th&client=tw-ob`;
+        const audio = new Audio(url);
+        audio.addEventListener('ended', resolve, { once: true });
+        // 失敗 fallback：逐字播放
+        audio.addEventListener('error', () => playComboAudio(text).then(resolve), { once: true });
+        audio.play().catch(() => playComboAudio(text).then(resolve));
+    });
+}
+
+/** 課程音訊播放：
+ *  - 課程 1：DB 字母誦讀 mp3（ยอ หญิง）
+ *  - 課程 3-4：整體 TTS 合成（子+母 / 子+母+聲）
+ *  - 課程 2、其他：逐字符序列播放
+ */
 function playLessonAudio() {
     if (currentLesson === 1 && state.word && state.word.audioUrl) {
         return new Promise(resolve => {
@@ -344,6 +363,9 @@ function playLessonAudio() {
             audio.addEventListener('error', resolve, { once: true });
             audio.play().catch(resolve);
         });
+    }
+    if (currentLesson === 3 || currentLesson === 4) {
+        return playComboTTS(state.targetText);
     }
     return playComboAudio(state.targetText);
 }
@@ -752,7 +774,10 @@ function handleKeyDown(e) {
             return;
         }
 
-        playCharAudio(targetChar);
+        // 課程 3-4：鍵盤輸入過程中不發音（待整字完成後播 TTS 合成音）
+        if (currentLesson !== 3 && currentLesson !== 4) {
+            playCharAudio(targetChar);
+        }
         spans[state.currentIndex]?.classList.add('current');
         highlightKeyHint(state.targetText[state.currentIndex]);
     } else {
