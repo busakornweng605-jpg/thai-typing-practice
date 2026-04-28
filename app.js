@@ -282,17 +282,24 @@ function generateComboItem(lesson) {
 
 function buildFullComboPool(lesson) {
     const pool = [];
-    LCC.cons.forEach(cons => {
+    const consList = Object.keys(CONSONANT_INFO);  // 44 個子音傳統順序
+    if (lesson === 3) {
+        // 母音外層、子音內層：每輪 10 個子音輪流，配同一母音
         LCC.vow.forEach(vow => {
-            if (lesson === 3) {
-                pool.push({ id: null, thai_word: cons + vow, chinese: '子音+母音', english: '' });
-            } else {
-                LCC.tone.forEach(tone => {
-                    pool.push({ id: null, thai_word: cons + vow + tone, chinese: '子音+母音+聲調', english: '' });
-                });
-            }
+            consList.forEach(cons => {
+                pool.push({ id: null, thai_word: cons + vow, chinese: `子音+母音 (${cons}+${vow})`, english: '' });
+            });
         });
-    });
+    } else {
+        // 課程 4：聲調外層 → 母音中層 → 子音內層
+        LCC.tone.forEach(tone => {
+            LCC.vow.forEach(vow => {
+                consList.forEach(cons => {
+                    pool.push({ id: null, thai_word: cons + vow + tone, chinese: `子音+母音+聲調 (${cons}+${vow}+${tone})`, english: '' });
+                });
+            });
+        });
+    }
     return pool;
 }
 
@@ -383,34 +390,32 @@ function startSession() {
             const fullPool = buildFullComboPool(currentLesson);
             comboPoolTotal = fullPool.length;
             comboUnpractisedPool = fullPool;
-            shuffleArray(comboUnpractisedPool);
+            // 不 shuffle：保持 44 子音序列輪流順序
         }
         startCharRound();
     }
 }
 
 function startCharRound() {
-    if (currentLesson === 1) {
-        // 課程 1：44 個子音依傳統順序輪流，每輪取 ROUND_SIZE 個（指標循環）
+    if (currentLesson === 1 || currentLesson === 2) {
+        // 課程 1-2：依 charPool 順序輪流，每輪取 ROUND_SIZE 個（指標循環）
         const pool = [];
         for (let i = 0; i < ROUND_SIZE; i++) {
             pool.push(charPool[charPoolIndex % charPool.length]);
             charPoolIndex++;
         }
         startRound(pool);
-    } else if (currentLesson === 2) {
-        // 課程 2：母音隨機抽取
-        const shuffled = [...charPool];
-        shuffleArray(shuffled);
-        startRound(shuffled.slice(0, Math.min(ROUND_SIZE, shuffled.length)));
     } else if (currentLesson === 3 || currentLesson === 4) {
         if (comboUnpractisedPool.length === 0) {
-            // 全部組合都已熟練，重置重練
-            comboMasteredSet.clear();
+            // 池清空 → 重建完整池並過濾已熟練的（保持子音序列順序）
             const fullPool = buildFullComboPool(currentLesson);
             comboPoolTotal = fullPool.length;
-            comboUnpractisedPool = fullPool;
-            shuffleArray(comboUnpractisedPool);
+            comboUnpractisedPool = fullPool.filter(item => !comboMasteredSet.has(item.thai_word));
+            // 若全部熟練 → 由 endRound 處理跳課，這裡若仍空則回填全池
+            if (comboUnpractisedPool.length === 0) {
+                comboMasteredSet.clear();
+                comboUnpractisedPool = fullPool;
+            }
         }
         const pool = comboUnpractisedPool.splice(0, Math.min(ROUND_SIZE, comboUnpractisedPool.length));
         startRound(pool);
@@ -444,13 +449,11 @@ function endRound() {
     if (currentLesson !== 5) {
         if (currentLesson >= 3) {
             // 課程 3-4：追蹤每個組合的熟練度
-            const failedCombos = [];
             wordResults.forEach(({ word, hasError }) => {
                 if (!hasError) {
                     comboMasteredSet.add(word.thai_word);
                 } else {
                     comboMasteredSet.delete(word.thai_word);
-                    failedCombos.push(word);
                 }
             });
             // 全部組合都無誤完成 → 跳下一課
@@ -463,8 +466,7 @@ function endRound() {
                 setTimeout(() => startSession(), 900);
                 return;
             }
-            // 有錯誤的組合加回待練習池（下輪優先練習）
-            comboUnpractisedPool.unshift(...failedCombos);
+            // 失敗組合不立即重試，等池清空時 startCharRound 重建（過濾已熟練）會自動讓未熟練的依序回來
         }
         // 課程 1-2 的跳課由 handleKeyDown 處理，這裡只繼續下一輪
         startCharRound();
