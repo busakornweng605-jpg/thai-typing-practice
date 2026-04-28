@@ -276,6 +276,7 @@ function shuffleArray(arr) {
 }
 
 function saveProgress() {
+    if (currentLesson !== 5) return;
     try {
         localStorage.setItem('thaiTypingProgress', JSON.stringify({
             masteredIds: [...masteredSet],
@@ -285,6 +286,7 @@ function saveProgress() {
 }
 
 function loadProgress() {
+    if (currentLesson !== 5) return false;
     try {
         const raw = localStorage.getItem('thaiTypingProgress');
         if (!raw) return false;
@@ -301,19 +303,36 @@ function loadProgress() {
 // ---- Session / Round 管理 ----
 
 function startSession() {
-    const total = Math.min(1000, words.length);
-    const pool1000 = words.slice(0, total);
+    updateLessonUI();
+    consecutiveCorrect = 0;
 
-    if (loadProgress() && unpractisedPool.length > 0) {
-        // 從 localStorage 恢復進度
-        const nextPool = unpractisedPool.splice(0, Math.min(100, unpractisedPool.length));
-        startRound(nextPool);
+    if (currentLesson === 5) {
+        const total = Math.min(1000, words.length);
+        if (loadProgress() && unpractisedPool.length > 0) {
+            startRound(unpractisedPool.splice(0, Math.min(ROUND_SIZE, unpractisedPool.length)));
+        } else {
+            masteredSet = new Set();
+            unpractisedPool = [...words.slice(0, total)];
+            shuffleArray(unpractisedPool);
+            startRound(unpractisedPool.splice(0, Math.min(ROUND_SIZE, unpractisedPool.length)));
+        }
     } else {
-        // 全新開始
-        masteredSet = new Set();
-        unpractisedPool = [...pool1000];
-        shuffleArray(unpractisedPool);
-        startRound(unpractisedPool.splice(0, Math.min(100, unpractisedPool.length)));
+        charPool = (currentLesson <= 2) ? buildCharPool(currentLesson) : [];
+        startCharRound();
+    }
+}
+
+function startCharRound() {
+    if (currentLesson === 3 || currentLesson === 4) {
+        const pool = [];
+        for (let i = 0; i < ROUND_SIZE; i++) {
+            pool.push(generateComboItem(currentLesson));
+        }
+        startRound(pool);
+    } else {
+        const shuffled = [...charPool];
+        shuffleArray(shuffled);
+        startRound(shuffled.slice(0, Math.min(ROUND_SIZE, shuffled.length)));
     }
 }
 
@@ -341,6 +360,10 @@ function advanceSession() {
 }
 
 function endRound() {
+    if (currentLesson !== 5) {
+        startCharRound();
+        return;
+    }
     const masteredThisRound = [];
     const failedThisRound = [];
 
@@ -355,28 +378,22 @@ function endRound() {
 
     const total = Math.min(1000, words.length);
 
-    // 全部 1000 個熟練 → 重置循環
     if (masteredSet.size >= total) {
         masteredSet = new Set();
         unpractisedPool = [...words.slice(0, total)];
         shuffleArray(unpractisedPool);
         saveProgress();
-        startRound(unpractisedPool.splice(0, Math.min(100, unpractisedPool.length)));
+        startRound(unpractisedPool.splice(0, Math.min(ROUND_SIZE, unpractisedPool.length)));
         return;
     }
 
     saveProgress();
 
     if (failedThisRound.length === 0) {
-        // 本輪全部零錯誤 → 從未練習池全新抽
-        if (unpractisedPool.length === 0) {
-            startSession();
-            return;
-        }
-        startRound(unpractisedPool.splice(0, Math.min(100, unpractisedPool.length)));
+        if (unpractisedPool.length === 0) { startSession(); return; }
+        startRound(unpractisedPool.splice(0, Math.min(ROUND_SIZE, unpractisedPool.length)));
     } else {
-        // 一般情況：錯誤字保留 + 補充新字
-        const needed = 100 - failedThisRound.length;
+        const needed = ROUND_SIZE - failedThisRound.length;
         const supplement = needed > 0
             ? unpractisedPool.splice(0, Math.min(needed, unpractisedPool.length))
             : [];
@@ -392,7 +409,17 @@ function updateRoundProgress() {
         const current = Math.min(sessionIndex + 1, sessionPool.length);
         progressEl.innerText = `第 ${current} / ${sessionPool.length} 個`;
     }
-    statWpm.innerText = unpractisedPool.length;
+    const remainingLabel = document.getElementById('stat-remaining-label');
+    if (currentLesson === 5) {
+        statWpm.innerText = unpractisedPool.length;
+        if (remainingLabel) remainingLabel.innerText = '剩餘';
+    } else if (currentLesson <= 2) {
+        statWpm.innerText = charPool.length;
+        if (remainingLabel) remainingLabel.innerText = '字符數';
+    } else {
+        statWpm.innerText = '∞';
+        if (remainingLabel) remainingLabel.innerText = '組合';
+    }
 }
 
 function playAudio(wordId) {
