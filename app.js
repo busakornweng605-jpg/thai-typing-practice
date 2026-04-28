@@ -21,7 +21,7 @@ const LESSON_CONFIG = {
     5: { subtitle: 'Kedmanee 鍵盤自由練習',     desc: '從 1000 個常用泰文單字中隨機出題，每輪 10 個。' },
 };
 
-let currentLesson = 5;
+let currentLesson = 1;
 let consecutiveCorrect = 0;
 let charPool = [];
 const LCC = { cons: [], vow: [], tone: [] };
@@ -649,7 +649,10 @@ function initGame() {
     }
 }
 
-document.addEventListener('click', () => hiddenInput.focus());
+document.addEventListener('click', (e) => {
+    if (e.target.closest('#lesson-select')) return;
+    hiddenInput.focus();
+});
 window.addEventListener('keydown', handleKeyDown);
 resetBtn.addEventListener('click', () => {
     resetBtn.style.transform = 'scale(0.95)';
