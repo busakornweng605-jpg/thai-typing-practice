@@ -124,6 +124,15 @@ def query_cons_audio(cp_hex):
 
 
 class BackendHandler(SimpleHTTPRequestHandler):
+    def end_headers(self):
+        # 靜態資源（HTML/JS/CSS）強制不快取，避免 WebView2 載到舊版
+        # API 端點各自設定的 Cache-Control 不在這裡覆蓋
+        if not self.path.startswith('/api/'):
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            self.send_header('Pragma', 'no-cache')
+            self.send_header('Expires', '0')
+        super().end_headers()
+
     def do_GET(self):
         if self.path == "/api/words":
             self._serve_words()
