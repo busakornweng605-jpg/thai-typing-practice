@@ -1,3 +1,32 @@
+// ── 課程定義 ─────────────────────────────────────────────
+const ROUND_SIZE = 10;
+
+const THAI_44_CONSONANTS = new Set('กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮ');
+
+const CONSONANT_CLASS = {
+    'ก':'中類','ข':'高類','ฃ':'高類','ค':'低類','ฅ':'低類','ฆ':'低類','ง':'低類',
+    'จ':'中類','ฉ':'高類','ช':'低類','ซ':'低類','ฌ':'低類','ญ':'低類','ฎ':'中類',
+    'ฏ':'中類','ฐ':'高類','ฑ':'低類','ฒ':'低類','ณ':'低類','ด':'中類','ต':'中類',
+    'ถ':'高類','ท':'低類','ธ':'低類','น':'低類','บ':'中類','ป':'中類','ผ':'高類',
+    'ฝ':'高類','พ':'低類','ฟ':'低類','ภ':'低類','ม':'低類','ย':'低類','ร':'低類',
+    'ล':'低類','ว':'低類','ศ':'高類','ษ':'高類','ส':'高類','ห':'高類','ฬ':'低類',
+    'อ':'中類','ฮ':'低類',
+};
+
+const LESSON_CONFIG = {
+    1: { subtitle: '44個泰文子音鍵位練習',     desc: '先播音再輸入，連續 10 題零錯誤自動進入下一課。' },
+    2: { subtitle: '泰文母音鍵位練習',         desc: '先播音再輸入，連續 10 題零錯誤自動進入下一課。' },
+    3: { subtitle: '子音+母音組合練習',         desc: '隨機子音+母音組合，先播音再輸入，連續 10 題零錯誤自動進入下一課。' },
+    4: { subtitle: '子音+母音+聲調組合練習',   desc: '隨機子音+母音+聲調組合，先播音再輸入，連續 10 題零錯誤自動進入下一課。' },
+    5: { subtitle: 'Kedmanee 鍵盤自由練習',     desc: '從 1000 個常用泰文單字中隨機出題，每輪 10 個。' },
+};
+
+let currentLesson = 5;
+let consecutiveCorrect = 0;
+let charPool = [];
+const LCC = { cons: [], vow: [], tone: [] };
+// ─────────────────────────────────────────────────────────
+
 const keyboardLayout = [
   [
     { code: 'Backquote', enUpper: '~', enLower: '`', thUpper: '%', thLower: '_', thClassUpper: 'th-vow', thClassLower: 'th-vow' },
@@ -145,6 +174,99 @@ function buildCharAudioMap() {
 }
 
 // ---- 輔助函式 ----
+
+function isThaiChar(ch) {
+    const cp = ch.codePointAt(0);
+    return cp >= 0x0E00 && cp <= 0x0E7F;
+}
+
+function initLCC() {
+    const seen = { cons: new Set(), vow: new Set(), tone: new Set() };
+    keyboardLayout.flat().forEach(key => {
+        if (key.special) return;
+        [
+            { char: key.thLower, cls: key.thClassLower },
+            { char: key.thUpper, cls: key.thClassUpper },
+        ].forEach(({ char, cls }) => {
+            if (!char || !isThaiChar(char)) return;
+            if (cls === 'th-cons' && THAI_44_CONSONANTS.has(char) && !seen.cons.has(char)) {
+                seen.cons.add(char); LCC.cons.push(char);
+            } else if (cls === 'th-vow' && !seen.vow.has(char)) {
+                seen.vow.add(char); LCC.vow.push(char);
+            } else if (cls === 'th-tone' && !seen.tone.has(char)) {
+                seen.tone.add(char); LCC.tone.push(char);
+            }
+        });
+    });
+}
+
+function buildCharPool(lesson) {
+    const seen = new Set();
+    const pool = [];
+    keyboardLayout.flat().forEach(key => {
+        if (key.special) return;
+        [
+            { char: key.thLower, cls: key.thClassLower },
+            { char: key.thUpper, cls: key.thClassUpper },
+        ].forEach(({ char, cls }) => {
+            if (!char || seen.has(char) || !isThaiChar(char)) return;
+            const include =
+                lesson === 1 ? THAI_44_CONSONANTS.has(char) :
+                lesson === 2 ? cls === 'th-vow' : false;
+            if (!include) return;
+            seen.add(char);
+            let chinese = '';
+            if (cls === 'th-cons') {
+                chinese = CONSONANT_CLASS[char] ? `子音・${CONSONANT_CLASS[char]}` : '子音';
+            } else if (cls === 'th-vow') {
+                chinese = '母音符號';
+            }
+            pool.push({ id: null, thai_word: char, chinese, english: '' });
+        });
+    });
+    return pool;
+}
+
+function generateComboItem(lesson) {
+    const cons = LCC.cons[Math.floor(Math.random() * LCC.cons.length)];
+    const vow  = LCC.vow[Math.floor(Math.random() * LCC.vow.length)];
+    if (lesson === 3) {
+        return { id: null, thai_word: cons + vow, chinese: '子音+母音', english: '' };
+    }
+    const tone = LCC.tone[Math.floor(Math.random() * LCC.tone.length)];
+    return { id: null, thai_word: cons + vow + tone, chinese: '子音+母音+聲調', english: '' };
+}
+
+function playCharAudioWait(char) {
+    return new Promise(resolve => {
+        const entry = charAudioMap[char];
+        if (!entry) { resolve(); return; }
+        let url;
+        if (entry.type === 'word') {
+            url = USE_API ? `/api/audio?id=${entry.id}` : `audio/${entry.id}.mp3`;
+        } else {
+            url = `audio/char_${entry.cp}.mp3`;
+        }
+        const audio = new Audio(url);
+        audio.addEventListener('ended', resolve, { once: true });
+        audio.addEventListener('error', resolve, { once: true });
+        audio.play().catch(resolve);
+    });
+}
+
+async function playComboAudio(text) {
+    for (const ch of [...text]) {
+        await playCharAudioWait(ch);
+    }
+}
+
+function updateLessonUI() {
+    const cfg = LESSON_CONFIG[currentLesson];
+    const subtitleEl = document.getElementById('lesson-subtitle');
+    const descEl = document.getElementById('lesson-desc');
+    if (subtitleEl) subtitleEl.innerText = cfg.subtitle;
+    if (descEl) descEl.innerText = cfg.desc;
+}
 
 function shuffleArray(arr) {
     for (let i = arr.length - 1; i > 0; i--) {
