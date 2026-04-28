@@ -244,17 +244,20 @@ function initLCC() {
 
 function buildCharPool(lesson) {
     if (lesson === 1) {
-        // 課程 1：依 CONSONANT_INFO 傳統順序，每個子音音訊為「字母名+名稱詞」
-        // 路徑為 audio/cons_<codepoint>.mp3（由 add_consonant_audio.py 產生）
+        // 課程 1：依 CONSONANT_INFO 傳統順序
+        // 音訊為「字母名+名稱詞」（如「ยอ หญิง」），EXE 模式由 DB 讀取，靜態模式由檔案讀取
         return Object.entries(CONSONANT_INFO).map(([char, info]) => {
             const cp = char.codePointAt(0).toString(16).padStart(4, '0');
+            const audioUrl = USE_API
+                ? `/api/cons_audio?cp=${cp}`
+                : `audio/cons_${cp}.mp3`;
             return {
                 id: null,
                 thai_word: char,
                 chinese: `${char}.${info.name} (${info.rom}) ${info.meaning}・${info.cls}`,
                 english: '',
                 nameWord: info.name,
-                audioUrl: `audio/cons_${cp}.mp3`,
+                audioUrl,
             };
         });
     }

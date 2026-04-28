@@ -54,10 +54,32 @@ def query_audio(word_id):
     return None
 
 
+def query_cons_audio(cp_hex):
+    """依 codepoint hex（如 '0e0d'）查 cons_audio 表的字母誦讀音訊。"""
+    try:
+        char = chr(int(cp_hex, 16))
+    except (ValueError, TypeError):
+        return None
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    # 容錯：表不存在時回 None
+    try:
+        cur.execute("SELECT audio FROM cons_audio WHERE char=?", (char,))
+        row = cur.fetchone()
+    except sqlite3.OperationalError:
+        row = None
+    conn.close()
+    if row and row[0]:
+        return bytes(row[0])
+    return None
+
+
 class BackendHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/api/words":
             self._serve_words()
+        elif self.path.startswith("/api/cons_audio"):
+            self._serve_cons_audio()
         elif self.path.startswith("/api/audio"):
             self._serve_audio()
         else:
@@ -78,6 +100,22 @@ class BackendHandler(SimpleHTTPRequestHandler):
             self.send_error(400, "Missing id")
             return
         audio_data = query_audio(params["id"][0])
+        if not audio_data:
+            self.send_error(404, "Not found")
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "audio/mpeg")
+        self.send_header("Content-Length", len(audio_data))
+        self.send_header("Cache-Control", "max-age=86400")
+        self.end_headers()
+        self.wfile.write(audio_data)
+
+    def _serve_cons_audio(self):
+        params = parse_qs(urlparse(self.path).query)
+        if "cp" not in params:
+            self.send_error(400, "Missing cp")
+            return
+        audio_data = query_cons_audio(params["cp"][0])
         if not audio_data:
             self.send_error(404, "Not found")
             return
