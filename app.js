@@ -563,15 +563,36 @@ function handleKeyDown(e) {
         state.currentIndex++;
 
         if (state.currentIndex >= state.targetText.length) {
-            // 全部輸入正確：等字元音訊播完 → 1秒後播單字音訊 → 2秒後進下一字
             state.isFinished = true;
             updateStats();
-            playCharAudio(targetChar).then(() => {
-                setTimeout(() => {
-                    playAudio(state.word.id);
-                    setTimeout(() => advanceSession(), 2000);
-                }, 1000);
-            });
+            if (currentLesson !== 5) {
+                // 字符課程：播音確認 → 檢查自動跳課 → 800ms 後進下一題
+                const noError = !wordErrorFlag;
+                playComboAudio(state.targetText).then(() => {
+                    if (noError) {
+                        consecutiveCorrect++;
+                    } else {
+                        consecutiveCorrect = 0;
+                    }
+                    if (consecutiveCorrect >= 10 && currentLesson < 5) {
+                        consecutiveCorrect = 0;
+                        currentLesson++;
+                        const sel = document.getElementById('lesson-select');
+                        if (sel) sel.value = String(currentLesson);
+                        setTimeout(() => startSession(), 900);
+                    } else {
+                        setTimeout(() => advanceSession(), 800);
+                    }
+                });
+            } else {
+                // 單字課程：播字元音 → 1秒後播整字音訊 → 2秒後進下一字
+                playCharAudio(targetChar).then(() => {
+                    setTimeout(() => {
+                        playAudio(state.word.id);
+                        setTimeout(() => advanceSession(), 2000);
+                    }, 1000);
+                });
+            }
             return;
         }
 
@@ -611,12 +632,21 @@ function initGame() {
     updateStats();              // 更新正確率與累計錯誤（輪次層級）
 
     if (translationDisplay) {
-        translationDisplay.innerText = `${state.word.chinese} / ${state.word.english}`;
+        if (currentLesson !== 5) {
+            translationDisplay.innerText = state.word.chinese;
+        } else {
+            translationDisplay.innerText = `${state.word.chinese} / ${state.word.english}`;
+        }
     }
 
     renderText();
     hiddenInput.value = '';
     hiddenInput.focus();
+
+    // 字符課程：初始化時先播放音訊，再等使用者輸入
+    if (currentLesson !== 5) {
+        playComboAudio(state.targetText);
+    }
 }
 
 document.addEventListener('click', () => hiddenInput.focus());
@@ -626,6 +656,21 @@ resetBtn.addEventListener('click', () => {
     setTimeout(() => resetBtn.style.transform = '', 100);
     startSession();
 });
+
+// ── 初始化字符快取
+initLCC();
+
+// ── 課程選單事件
+const lessonSelect = document.getElementById('lesson-select');
+if (lessonSelect) {
+    lessonSelect.value = String(currentLesson);
+    lessonSelect.addEventListener('change', () => {
+        state.isFinished = true;
+        consecutiveCorrect = 0;
+        currentLesson = Number(lessonSelect.value);
+        startSession();
+    });
+}
 
 renderKeyboard();
 loadWords().then(() => {
