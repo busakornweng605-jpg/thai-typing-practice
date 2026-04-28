@@ -14,16 +14,19 @@ const CONSONANT_CLASS = {
 };
 
 const LESSON_CONFIG = {
-    1: { subtitle: '44個泰文子音鍵位練習',     desc: '先播音再輸入，連續 10 題零錯誤自動進入下一課。' },
-    2: { subtitle: '泰文母音鍵位練習',         desc: '先播音再輸入，連續 10 題零錯誤自動進入下一課。' },
-    3: { subtitle: '子音+母音組合練習',         desc: '隨機子音+母音組合，先播音再輸入，連續 10 題零錯誤自動進入下一課。' },
-    4: { subtitle: '子音+母音+聲調組合練習',   desc: '隨機子音+母音+聲調組合，先播音再輸入，連續 10 題零錯誤自動進入下一課。' },
+    1: { subtitle: '44個泰文子音鍵位練習',     desc: '先播音再輸入，所有子音全部無誤完成後自動進入下一課。' },
+    2: { subtitle: '泰文母音鍵位練習',         desc: '先播音再輸入，所有母音全部無誤完成後自動進入下一課。' },
+    3: { subtitle: '子音+母音組合練習',         desc: '所有子音×母音組合（每輪10個），全部無誤完成後自動進入下一課。' },
+    4: { subtitle: '子音+母音+聲調組合練習',   desc: '所有子音×母音×聲調組合（每輪10個），全部無誤完成後自動進入下一課。' },
     5: { subtitle: 'Kedmanee 鍵盤自由練習',     desc: '從 1000 個常用泰文單字中隨機出題，每輪 10 個。' },
 };
 
 let currentLesson = 1;
-let masteredChars = new Set();  // 課程 1-2：本輪已無誤完成的字符
+let masteredChars = new Set();       // 課程 1-2：已無誤完成的字符
 let charPool = [];
+let comboMasteredSet = new Set();    // 課程 3-4：已無誤完成的組合（thai_word 為 key）
+let comboUnpractisedPool = [];       // 課程 3-4：尚未練習的組合
+let comboPoolTotal = 0;              // 課程 3-4：完整組合池大小
 const LCC = { cons: [], vow: [], tone: [] };
 // ─────────────────────────────────────────────────────────
 
@@ -237,6 +240,22 @@ function generateComboItem(lesson) {
     return { id: null, thai_word: cons + vow + tone, chinese: '子音+母音+聲調', english: '' };
 }
 
+function buildFullComboPool(lesson) {
+    const pool = [];
+    LCC.cons.forEach(cons => {
+        LCC.vow.forEach(vow => {
+            if (lesson === 3) {
+                pool.push({ id: null, thai_word: cons + vow, chinese: '子音+母音', english: '' });
+            } else {
+                LCC.tone.forEach(tone => {
+                    pool.push({ id: null, thai_word: cons + vow + tone, chinese: '子音+母音+聲調', english: '' });
+                });
+            }
+        });
+    });
+    return pool;
+}
+
 function playCharAudioWait(char) {
     return new Promise(resolve => {
         const entry = charAudioMap[char];
@@ -318,16 +337,28 @@ function startSession() {
         }
     } else {
         charPool = (currentLesson <= 2) ? buildCharPool(currentLesson) : [];
+        if (currentLesson >= 3) {
+            comboMasteredSet.clear();
+            const fullPool = buildFullComboPool(currentLesson);
+            comboPoolTotal = fullPool.length;
+            comboUnpractisedPool = fullPool;
+            shuffleArray(comboUnpractisedPool);
+        }
         startCharRound();
     }
 }
 
 function startCharRound() {
     if (currentLesson === 3 || currentLesson === 4) {
-        const pool = [];
-        for (let i = 0; i < ROUND_SIZE; i++) {
-            pool.push(generateComboItem(currentLesson));
+        if (comboUnpractisedPool.length === 0) {
+            // 全部組合都已熟練，重置重練
+            comboMasteredSet.clear();
+            const fullPool = buildFullComboPool(currentLesson);
+            comboPoolTotal = fullPool.length;
+            comboUnpractisedPool = fullPool;
+            shuffleArray(comboUnpractisedPool);
         }
+        const pool = comboUnpractisedPool.splice(0, Math.min(ROUND_SIZE, comboUnpractisedPool.length));
         startRound(pool);
     } else {
         const shuffled = [...charPool];
@@ -361,14 +392,31 @@ function advanceSession() {
 
 function endRound() {
     if (currentLesson !== 5) {
-        // 課程 3-4：整輪零錯誤 → 跳下一課
-        if (currentLesson >= 3 && roundErrors === 0) {
-            currentLesson++;
-            const sel = document.getElementById('lesson-select');
-            if (sel) sel.value = String(currentLesson);
-            setTimeout(() => startSession(), 500);
-            return;
+        if (currentLesson >= 3) {
+            // 課程 3-4：追蹤每個組合的熟練度
+            const failedCombos = [];
+            wordResults.forEach(({ word, hasError }) => {
+                if (!hasError) {
+                    comboMasteredSet.add(word.thai_word);
+                } else {
+                    comboMasteredSet.delete(word.thai_word);
+                    failedCombos.push(word);
+                }
+            });
+            // 全部組合都無誤完成 → 跳下一課
+            if (comboMasteredSet.size >= comboPoolTotal) {
+                comboMasteredSet.clear();
+                comboUnpractisedPool = [];
+                currentLesson++;
+                const sel = document.getElementById('lesson-select');
+                if (sel) sel.value = String(currentLesson);
+                setTimeout(() => startSession(), 900);
+                return;
+            }
+            // 有錯誤的組合加回待練習池（下輪優先練習）
+            comboUnpractisedPool.unshift(...failedCombos);
         }
+        // 課程 1-2 的跳課由 handleKeyDown 處理，這裡只繼續下一輪
         startCharRound();
         return;
     }
@@ -425,8 +473,8 @@ function updateRoundProgress() {
         statWpm.innerText = charPool.length;
         if (remainingLabel) remainingLabel.innerText = '字符數';
     } else {
-        statWpm.innerText = '∞';
-        if (remainingLabel) remainingLabel.innerText = '組合';
+        statWpm.innerText = comboUnpractisedPool.length;
+        if (remainingLabel) remainingLabel.innerText = '剩餘組合';
     }
 }
 
@@ -534,8 +582,7 @@ function updateStats() {
     }
     statAccuracy.innerText = `${accuracy}%`;
 
-    // 剩餘未練習單字數（由 updateRoundProgress 也會更新，此處同步確保一致）
-    statWpm.innerText = unpractisedPool.length;
+    // statWpm 由 updateRoundProgress 依課程設定，此處不覆蓋
 }
 
 function handleKeyDown(e) {
