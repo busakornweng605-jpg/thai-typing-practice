@@ -3,14 +3,52 @@ const ROUND_SIZE = 10;
 
 const THAI_44_CONSONANTS = new Set('กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮ');
 
-const CONSONANT_CLASS = {
-    'ก':'中類','ข':'高類','ฃ':'高類','ค':'低類','ฅ':'低類','ฆ':'低類','ง':'低類',
-    'จ':'中類','ฉ':'高類','ช':'低類','ซ':'低類','ฌ':'低類','ญ':'低類','ฎ':'中類',
-    'ฏ':'中類','ฐ':'高類','ฑ':'低類','ฒ':'低類','ณ':'低類','ด':'中類','ต':'中類',
-    'ถ':'高類','ท':'低類','ธ':'低類','น':'低類','บ':'中類','ป':'中類','ผ':'高類',
-    'ฝ':'高類','พ':'低類','ฟ':'低類','ภ':'低類','ม':'低類','ย':'低類','ร':'低類',
-    'ล':'低類','ว':'低類','ศ':'高類','ษ':'高類','ส':'高類','ห':'高類','ฬ':'低類',
-    'อ':'中類','ฮ':'低類',
+// 44 個子音（傳統順序）+ 名稱 + 拼音 + 中文釋義 + 類別
+const CONSONANT_INFO = {
+    'ก': { name: 'ไก่',     rom: 'kɔ̀ɔ kài',       meaning: '雞',         cls: '中類' },
+    'ข': { name: 'ไข่',     rom: 'khɔ̌ɔ khài',     meaning: '蛋',         cls: '高類' },
+    'ฃ': { name: 'ขวด',    rom: 'khɔ̌ɔ khùat',    meaning: '瓶',         cls: '高類' },
+    'ค': { name: 'ควาย',   rom: 'khɔɔ khwaai',    meaning: '水牛',       cls: '低類' },
+    'ฅ': { name: 'คน',     rom: 'khɔɔ khon',      meaning: '人',         cls: '低類' },
+    'ฆ': { name: 'ระฆัง',  rom: 'khɔɔ ra-khang',  meaning: '鐘',         cls: '低類' },
+    'ง': { name: 'งู',     rom: 'ngɔɔ nguu',      meaning: '蛇',         cls: '低類' },
+    'จ': { name: 'จาน',    rom: 'cɔɔ caan',       meaning: '盤子',       cls: '中類' },
+    'ฉ': { name: 'ฉิ่ง',   rom: 'chɔ̌ɔ chìng',    meaning: '鈸',         cls: '高類' },
+    'ช': { name: 'ช้าง',   rom: 'chɔɔ cháang',    meaning: '大象',       cls: '低類' },
+    'ซ': { name: 'โซ่',    rom: 'sɔɔ sôo',        meaning: '鏈條',       cls: '低類' },
+    'ฌ': { name: 'เฌอ',    rom: 'chɔɔ chəə',      meaning: '樹',         cls: '低類' },
+    'ญ': { name: 'หญิง',   rom: 'yɔɔ yǐng',       meaning: '女人',       cls: '低類' },
+    'ฎ': { name: 'ชฎา',    rom: 'dɔɔ cha-daa',    meaning: '傳統頭飾',   cls: '中類' },
+    'ฏ': { name: 'ปฏัก',   rom: 'tɔɔ pa-tàk',     meaning: '矛',         cls: '中類' },
+    'ฐ': { name: 'ฐาน',    rom: 'thɔ̌ɔ thǎan',    meaning: '基座',       cls: '高類' },
+    'ฑ': { name: 'มณโฑ',   rom: 'thɔɔ mon-thoo',  meaning: '蒙托夫人',   cls: '低類' },
+    'ฒ': { name: 'ผู้เฒ่า',rom: 'thɔɔ phûu-thâo', meaning: '老人',       cls: '低類' },
+    'ณ': { name: 'เณร',    rom: 'nɔɔ neen',       meaning: '小沙彌',     cls: '低類' },
+    'ด': { name: 'เด็ก',   rom: 'dɔɔ dèk',        meaning: '小孩',       cls: '中類' },
+    'ต': { name: 'เต่า',   rom: 'tɔɔ tào',        meaning: '烏龜',       cls: '中類' },
+    'ถ': { name: 'ถุง',    rom: 'thɔ̌ɔ thǔng',    meaning: '袋子',       cls: '高類' },
+    'ท': { name: 'ทหาร',   rom: 'thɔɔ tha-hǎan',  meaning: '軍人',       cls: '低類' },
+    'ธ': { name: 'ธง',     rom: 'thɔɔ thong',     meaning: '旗幟',       cls: '低類' },
+    'น': { name: 'หนู',    rom: 'nɔɔ nǔu',        meaning: '老鼠',       cls: '低類' },
+    'บ': { name: 'ใบไม้',  rom: 'bɔɔ bai-mái',    meaning: '葉子',       cls: '中類' },
+    'ป': { name: 'ปลา',    rom: 'pɔɔ plaa',       meaning: '魚',         cls: '中類' },
+    'ผ': { name: 'ผึ้ง',   rom: 'phɔ̌ɔ phûeng',   meaning: '蜜蜂',       cls: '高類' },
+    'ฝ': { name: 'ฝา',     rom: 'fɔ̌ɔ fǎa',       meaning: '蓋子',       cls: '高類' },
+    'พ': { name: 'พาน',    rom: 'phɔɔ phaan',     meaning: '托盤',       cls: '低類' },
+    'ฟ': { name: 'ฟัน',    rom: 'fɔɔ fan',        meaning: '牙齒',       cls: '低類' },
+    'ภ': { name: 'สำเภา',  rom: 'phɔɔ sǎm-phao',  meaning: '帆船',       cls: '低類' },
+    'ม': { name: 'ม้า',    rom: 'mɔɔ máa',        meaning: '馬',         cls: '低類' },
+    'ย': { name: 'ยักษ์',  rom: 'yɔɔ yák',        meaning: '巨人',       cls: '低類' },
+    'ร': { name: 'เรือ',   rom: 'rɔɔ rʉua',       meaning: '船',         cls: '低類' },
+    'ล': { name: 'ลิง',    rom: 'lɔɔ ling',       meaning: '猴子',       cls: '低類' },
+    'ว': { name: 'แหวน',   rom: 'wɔɔ wǎen',       meaning: '戒指',       cls: '低類' },
+    'ศ': { name: 'ศาลา',   rom: 'sɔ̌ɔ sǎa-laa',   meaning: '涼亭',       cls: '高類' },
+    'ษ': { name: 'ฤๅษี',   rom: 'sɔ̌ɔ rʉʉ-sǐi',   meaning: '隱士',       cls: '高類' },
+    'ส': { name: 'เสือ',   rom: 'sɔ̌ɔ sʉ̌ua',     meaning: '老虎',       cls: '高類' },
+    'ห': { name: 'หีบ',    rom: 'hɔ̌ɔ hìip',      meaning: '箱子',       cls: '高類' },
+    'ฬ': { name: 'จุฬา',   rom: 'lɔɔ cù-laa',     meaning: '風箏',       cls: '低類' },
+    'อ': { name: 'อ่าง',   rom: 'ɔɔ àang',        meaning: '水盆',       cls: '中類' },
+    'ฮ': { name: 'นกฮูก',  rom: 'hɔɔ nók-hûuk',   meaning: '貓頭鷹',     cls: '低類' },
 };
 
 const LESSON_CONFIG = {
@@ -24,6 +62,7 @@ const LESSON_CONFIG = {
 let currentLesson = 1;
 let masteredChars = new Set();       // 課程 1-2：已無誤完成的字符
 let charPool = [];
+let charPoolIndex = 0;               // 課程 1：序列輪流的指標
 let comboMasteredSet = new Set();    // 課程 3-4：已無誤完成的組合（thai_word 為 key）
 let comboUnpractisedPool = [];       // 課程 3-4：尚未練習的組合
 let comboPoolTotal = 0;              // 課程 3-4：完整組合池大小
@@ -204,6 +243,16 @@ function initLCC() {
 }
 
 function buildCharPool(lesson) {
+    if (lesson === 1) {
+        // 課程 1：依 CONSONANT_INFO 的傳統順序（ก→ฮ）建池，每個子音附名稱+拼音+中文釋義
+        return Object.entries(CONSONANT_INFO).map(([char, info]) => ({
+            id: null,
+            thai_word: char,
+            chinese: `${char}.${info.name} (${info.rom}) ${info.meaning}・${info.cls}`,
+            english: '',
+        }));
+    }
+    // 課程 2：母音（從 keyboardLayout 提取，去重）
     const seen = new Set();
     const pool = [];
     keyboardLayout.flat().forEach(key => {
@@ -213,18 +262,9 @@ function buildCharPool(lesson) {
             { char: key.thUpper, cls: key.thClassUpper },
         ].forEach(({ char, cls }) => {
             if (!char || seen.has(char) || !isThaiChar(char)) return;
-            const include =
-                lesson === 1 ? THAI_44_CONSONANTS.has(char) :
-                lesson === 2 ? cls === 'th-vow' : false;
-            if (!include) return;
+            if (cls !== 'th-vow') return;
             seen.add(char);
-            let chinese = '';
-            if (cls === 'th-cons') {
-                chinese = CONSONANT_CLASS[char] ? `子音・${CONSONANT_CLASS[char]}` : '子音';
-            } else if (cls === 'th-vow') {
-                chinese = '母音符號';
-            }
-            pool.push({ id: null, thai_word: char, chinese, english: '' });
+            pool.push({ id: null, thai_word: char, chinese: '母音符號', english: '' });
         });
     });
     return pool;
@@ -324,6 +364,7 @@ function loadProgress() {
 function startSession() {
     updateLessonUI();
     masteredChars.clear();
+    charPoolIndex = 0;
 
     if (currentLesson === 5) {
         const total = Math.min(1000, words.length);
@@ -349,7 +390,20 @@ function startSession() {
 }
 
 function startCharRound() {
-    if (currentLesson === 3 || currentLesson === 4) {
+    if (currentLesson === 1) {
+        // 課程 1：44 個子音依傳統順序輪流，每輪取 ROUND_SIZE 個（指標循環）
+        const pool = [];
+        for (let i = 0; i < ROUND_SIZE; i++) {
+            pool.push(charPool[charPoolIndex % charPool.length]);
+            charPoolIndex++;
+        }
+        startRound(pool);
+    } else if (currentLesson === 2) {
+        // 課程 2：母音隨機抽取
+        const shuffled = [...charPool];
+        shuffleArray(shuffled);
+        startRound(shuffled.slice(0, Math.min(ROUND_SIZE, shuffled.length)));
+    } else if (currentLesson === 3 || currentLesson === 4) {
         if (comboUnpractisedPool.length === 0) {
             // 全部組合都已熟練，重置重練
             comboMasteredSet.clear();
@@ -360,10 +414,6 @@ function startCharRound() {
         }
         const pool = comboUnpractisedPool.splice(0, Math.min(ROUND_SIZE, comboUnpractisedPool.length));
         startRound(pool);
-    } else {
-        const shuffled = [...charPool];
-        shuffleArray(shuffled);
-        startRound(shuffled.slice(0, Math.min(ROUND_SIZE, shuffled.length)));
     }
 }
 
