@@ -13,6 +13,21 @@ import webview
 # 簡易記憶體快取：避免重複 TTS 請求 Google
 _tts_cache = {}
 _TTS_CACHE_MAX = 500
+# TTS 可用旗標：失敗或啟動時偵測到離線就關閉，避免後續請求逾時
+_tts_disabled = False
+
+
+def check_online(timeout=2):
+    """快速偵測是否能連到 Google（HEAD /generate_204）。"""
+    try:
+        req = urllib.request.Request(
+            'https://www.google.com/generate_204',
+            headers={'User-Agent': 'Mozilla/5.0'},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return 200 <= resp.status < 400
+    except Exception:
+        return False
 
 
 def get_base_path():
@@ -61,8 +76,11 @@ def query_audio(word_id):
 
 
 def fetch_tts(text):
-    """從 Google Translate TTS 取得泰文整體合成音（記憶體快取）。"""
-    if not text:
+    """從 Google Translate TTS 取得泰文整體合成音（記憶體快取）。
+    離線或上次失敗則直接回 None，避免每次都等網路逾時。
+    """
+    global _tts_disabled
+    if _tts_disabled or not text:
         return None
     if text in _tts_cache:
         return _tts_cache[text]
@@ -72,9 +90,11 @@ def fetch_tts(text):
     )
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        # 短逾時：3 秒，離線時快速失敗
+        with urllib.request.urlopen(req, timeout=3) as resp:
             data = resp.read()
     except Exception:
+        _tts_disabled = True   # 一次失敗後關閉，避免後續每次等 timeout
         return None
     # 控制快取大小
     if len(_tts_cache) >= _TTS_CACHE_MAX:
@@ -184,6 +204,11 @@ if __name__ == "__main__":
     URL = f"http://localhost:{PORT}"
 
     os.chdir(get_base_path())
+
+    # 啟動時偵測網路：離線則直接關閉 TTS，避免每次請求都等逾時
+    if not check_online(timeout=2):
+        _tts_disabled = True
+        print("[INFO] 離線模式：TTS 已停用，課程 3-4 將以本地逐字音訊播放。")
 
     socketserver.TCPServer.allow_reuse_address = True
     httpd = socketserver.TCPServer(("", PORT), BackendHandler)

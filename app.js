@@ -335,8 +335,27 @@ async function playComboAudio(text) {
     }
 }
 
-/** Google TTS 整體合成播放（將整段文字當作一個泰文詞彙朗讀） */
+// TTS 可用性旗標：偵測到失敗或離線後關閉，後續直接用本地逐字 fallback
+let _ttsAvailable = true;
+
+// 監聽瀏覽器離線/上線事件
+if (typeof window !== 'undefined') {
+    window.addEventListener('offline', () => { _ttsAvailable = false; });
+    window.addEventListener('online',  () => { _ttsAvailable = true; });
+}
+
+/** Google TTS 整體合成播放（將整段文字當作一個泰文詞彙朗讀）
+ *  離線或失敗時自動 fallback 到本地逐字 mp3（playComboAudio）。
+ */
 function playComboTTS(text) {
+    // 離線狀態：直接 fallback，不嘗試網路請求
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        _ttsAvailable = false;
+        return playComboAudio(text);
+    }
+    if (!_ttsAvailable) {
+        return playComboAudio(text);
+    }
     return new Promise(resolve => {
         const q = encodeURIComponent(text);
         const url = USE_API
@@ -344,9 +363,15 @@ function playComboTTS(text) {
             : `https://translate.googleapis.com/translate_tts?ie=UTF-8&q=${q}&tl=th&client=tw-ob`;
         const audio = new Audio(url);
         audio.addEventListener('ended', resolve, { once: true });
-        // 失敗 fallback：逐字播放
-        audio.addEventListener('error', () => playComboAudio(text).then(resolve), { once: true });
-        audio.play().catch(() => playComboAudio(text).then(resolve));
+        // 失敗時：標記 TTS 不可用、改用本地 fallback，避免後續請求繼續逾時
+        audio.addEventListener('error', () => {
+            _ttsAvailable = false;
+            playComboAudio(text).then(resolve);
+        }, { once: true });
+        audio.play().catch(() => {
+            _ttsAvailable = false;
+            playComboAudio(text).then(resolve);
+        });
     });
 }
 
