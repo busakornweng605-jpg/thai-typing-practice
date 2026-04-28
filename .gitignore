@@ -1,6 +1,7 @@
 thai_words.db
 dist/
 build/
+public/
 *.spec
 __pycache__/
 *.pyc

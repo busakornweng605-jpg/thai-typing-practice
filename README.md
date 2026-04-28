@@ -21,6 +21,22 @@
 
 ## 執行方式
 
+### Codex / Claude Code 本地測試
+
+專案已提供 `AGENTS.md` 給 Codex 讀取，`CLAUDE.md` 則保留給 Claude Code。兩者共用同一套原始碼與 PowerShell 啟動方式。
+
+```powershell
+# Codex 建議：靜態模式，等同 GitHub Pages
+.\start-codex.ps1 -Port 8000
+# 開啟 http://localhost:8000
+
+# Codex/CI 需要測 API 時：不開桌面視窗，需 thai_words.db
+.\start-codex.ps1 -Api -Port 8000
+# 開啟 http://localhost:8000
+```
+
+直接用瀏覽器開 `index.html` 可能被瀏覽器限制讀取 `words.json`；本地測試建議一律透過 HTTP server。
+
 ### GitHub Pages（線上，無需安裝）
 
 直接開啟瀏覽器前往：
@@ -51,8 +67,11 @@ https://busakornweng605-jpg.github.io/thai-typing-practice/
 
 ```powershell
 # 靜態模式（音訊來自 audio/ 資料夾）
-python -m http.server 8000
+.\start-codex.ps1 -Port 8000
 # 開啟 http://localhost:8000
+
+# API 模式（需 thai_words.db，不開桌面視窗）
+.\start-codex.ps1 -Api -Port 8000
 
 # 桌面視窗模式（需 thai_words.db）
 python server.py
@@ -74,7 +93,11 @@ python server.py
 ├── server.py               # 本地 HTTP server + pywebview
 ├── export_db.py            # 從 thai_words.db 匯出 words.json 和 audio/
 ├── export_char_audio.py    # 從 Google TTS 下載字元音訊（一次性）
+├── import_lesson_audio.py  # 匯入課程 1-4 音訊到 thai_words.db
 ├── build.bat               # PyInstaller 打包腳本
+├── start-codex.ps1         # Codex/CI 友善的 PowerShell 啟動腳本
+├── AGENTS.md               # Codex 專案指引
+├── CLAUDE.md               # Claude Code 專案指引
 ├── .github/workflows/
 │   └── deploy.yml          # GitHub Pages 自動部署
 ├── thai_words.db           # 本地資料庫（不進 git）
@@ -97,6 +120,14 @@ python server.py
 | chinese | TEXT | 繁體中文翻譯 |
 | english | TEXT | 英文翻譯 |
 | audio | BLOB | MP3 音訊資料 |
+
+附加音訊表：
+
+| 表格 | 說明 |
+|------|------|
+| cons_audio | 課程一 44 個子音字母名音訊 |
+| char_audio | 課程二字元音訊 |
+| tts_audio | 課程三/四整段組合音訊快取（Google TTS）|
 
 `kbd_seq` 格式範例：`【gxHo】`  
 → `g`=เ, `x`=ป, `H`=Shift+H=็, `o`=น → **เป็น**（大寫表示需按 Shift）
@@ -129,6 +160,25 @@ python export_char_audio.py
 # 從 Google TTS 下載 81 個字元音訊到 audio/char_*.mp3
 ```
 
+### 匯入課程音訊到資料庫
+
+```powershell
+# 匯入課程一 cons_*.mp3 與課程二 char_*.mp3
+python import_lesson_audio.py
+
+# 可選：預先抓取課程三/四所有整段組合音訊（約 5280 筆，需較久）
+python import_lesson_audio.py --with-combos
+
+# 將 DB 內課程三/四整段音訊輸出成 GitHub Pages 可用的靜態檔
+python import_lesson_audio.py --export-combo-files
+```
+
+完整離線部署建議先執行：
+
+```powershell
+python import_lesson_audio.py --with-combos --export-combo-files
+```
+
 ### 打包桌面版
 
 ```powershell
@@ -136,7 +186,16 @@ python export_char_audio.py
 pip install pyinstaller
 
 .\build.bat
-# 產生 dist/run.exe
+# 產生 dist/run.exe，已內建 thai_words.db，不需另外附 .db
+```
+
+### 建置 GitHub Pages / 本機靜態版
+
+```powershell
+python build_pages.py
+# 產生 public/，可用任意靜態伺服器開啟
+
+python -m http.server 8000 -d public
 ```
 
 ---

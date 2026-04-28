@@ -78,7 +78,7 @@ const keyboardLayout = [
     { code: 'Digit4', enUpper: '$', enLower: '4', thUpper: '๓', thLower: 'ภ', thClassUpper: 'th-cons', thClassLower: 'th-cons' },
     { code: 'Digit5', enUpper: '%', enLower: '5', thUpper: '๔', thLower: 'ถ', thClassUpper: 'th-cons', thClassLower: 'th-cons' },
     { code: 'Digit6', enUpper: '^', enLower: '6', thUpper: 'ู', thLower: 'ุ', thClassUpper: 'th-vow', thClassLower: 'th-vow' },
-    { code: 'Digit7', enUpper: '&', enLower: '7', thUpper: '฿', thLower: 'ึ', thClassUpper: 'th-vow', thClassLower: 'th-vow' },
+    { code: 'Digit7', enUpper: '&', enLower: '7', thUpper: '฿', thLower: 'ึ', thClassUpper: 'th-symbol', thClassLower: 'th-vow' },
     { code: 'Digit8', enUpper: '*', enLower: '8', thUpper: '๕', thLower: 'ค', thClassUpper: 'th-cons', thClassLower: 'th-cons' },
     { code: 'Digit9', enUpper: '(', enLower: '9', thUpper: '๖', thLower: 'ต', thClassUpper: 'th-cons', thClassLower: 'th-cons' },
     { code: 'Digit0', enUpper: ')', enLower: '0', thUpper: '๗', thLower: 'จ', thClassUpper: 'th-cons', thClassLower: 'th-cons' },
@@ -320,7 +320,7 @@ function playCharAudioWait(char) {
         if (entry.type === 'word') {
             url = USE_API ? `/api/audio?id=${entry.id}` : `audio/${entry.id}.mp3`;
         } else {
-            url = `audio/char_${entry.cp}.mp3`;
+            url = USE_API ? `/api/char_audio?cp=${entry.cp}` : `audio/char_${entry.cp}.mp3`;
         }
         const audio = new Audio(url);
         audio.addEventListener('ended', resolve, { once: true });
@@ -335,7 +335,38 @@ async function playComboAudio(text) {
     }
 }
 
-// TTS 可用性旗標：偵測到失敗或離線後關閉，後續直接用本地逐字 fallback
+function speakThaiText(text) {
+    return new Promise(resolve => {
+        if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+            resolve();
+            return;
+        }
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'th-TH';
+        utterance.rate = 0.85;
+        utterance.onend = resolve;
+        utterance.onerror = resolve;
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(utterance);
+    });
+}
+
+function comboAudioName(text) {
+    return [...text]
+        .map(ch => ch.codePointAt(0).toString(16).padStart(4, '0'))
+        .join('_');
+}
+
+function playAudioUrl(url) {
+    return new Promise((resolve, reject) => {
+        const audio = new Audio(url);
+        audio.addEventListener('ended', resolve, { once: true });
+        audio.addEventListener('error', reject, { once: true });
+        audio.play().catch(reject);
+    });
+}
+
+// TTS 可用性旗標：偵測到失敗或離線後關閉，後續改用課程指定的 fallback
 let _ttsAvailable = true;
 
 // 監聽瀏覽器離線/上線事件
@@ -345,16 +376,29 @@ if (typeof window !== 'undefined') {
 }
 
 /** Google TTS 整體合成播放（將整段文字當作一個泰文詞彙朗讀）
- *  離線或失敗時自動 fallback 到本地逐字 mp3（playComboAudio）。
+ *  離線或失敗時可 fallback 到逐字 mp3，課程 3-4 則 fallback 到整段 Web Speech。
  */
-function playComboTTS(text) {
+function playComboTTS(text, options = {}) {
+    const fallbackToChars = options.fallbackToChars !== false;
+    const alwaysTryTTS = options.alwaysTryTTS === true;
+    const fallback = () => fallbackToChars ? playComboAudio(text) : speakThaiText(text);
+
+    if (!USE_API) {
+        const comboUrl = `audio/combo_${comboAudioName(text)}.mp3`;
+        return playAudioUrl(comboUrl).catch(() => playRemoteComboTTS(text, fallback, alwaysTryTTS));
+    }
+
+    return playRemoteComboTTS(text, fallback, alwaysTryTTS);
+}
+
+function playRemoteComboTTS(text, fallback, alwaysTryTTS) {
     // 離線狀態：直接 fallback，不嘗試網路請求
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         _ttsAvailable = false;
-        return playComboAudio(text);
+        return fallback();
     }
-    if (!_ttsAvailable) {
-        return playComboAudio(text);
+    if (!_ttsAvailable && !alwaysTryTTS) {
+        return fallback();
     }
     return new Promise(resolve => {
         const q = encodeURIComponent(text);
@@ -365,12 +409,12 @@ function playComboTTS(text) {
         audio.addEventListener('ended', resolve, { once: true });
         // 失敗時：標記 TTS 不可用、改用本地 fallback，避免後續請求繼續逾時
         audio.addEventListener('error', () => {
-            _ttsAvailable = false;
-            playComboAudio(text).then(resolve);
+            if (!alwaysTryTTS) _ttsAvailable = false;
+            fallback().then(resolve);
         }, { once: true });
         audio.play().catch(() => {
-            _ttsAvailable = false;
-            playComboAudio(text).then(resolve);
+            if (!alwaysTryTTS) _ttsAvailable = false;
+            fallback().then(resolve);
         });
     });
 }
@@ -390,7 +434,7 @@ function playLessonAudio() {
         });
     }
     if (currentLesson === 3 || currentLesson === 4) {
-        return playComboTTS(state.targetText);
+        return playComboTTS(state.targetText, { fallbackToChars: false, alwaysTryTTS: true });
     }
     return playComboAudio(state.targetText);
 }
@@ -656,7 +700,8 @@ function playCharAudio(char) {
             const url = USE_API ? `/api/audio?id=${entry.id}` : `audio/${entry.id}.mp3`;
             audio = new Audio(url);
         } else {
-            audio = new Audio(`audio/char_${entry.cp}.mp3`);
+            const url = USE_API ? `/api/char_audio?cp=${entry.cp}` : `audio/char_${entry.cp}.mp3`;
+            audio = new Audio(url);
         }
         audio.onended = resolve;
         audio.onerror = resolve;
@@ -849,8 +894,8 @@ function initGame() {
     hiddenInput.value = '';
     hiddenInput.focus();
 
-    // 字符課程：初始化時先播放音訊，再等使用者輸入
-    if (currentLesson !== 5) {
+    // 課程 3-4 不預播，完成輸入後才播放整個組合音訊。
+    if (currentLesson !== 5 && currentLesson !== 3 && currentLesson !== 4) {
         playLessonAudio();
     }
 }

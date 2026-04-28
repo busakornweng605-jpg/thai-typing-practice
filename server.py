@@ -1,5 +1,6 @@
 import os
 import sys
+import argparse
 import json
 import sqlite3
 import threading
@@ -8,7 +9,6 @@ import urllib.request
 from urllib.parse import urlparse, parse_qs
 from http.server import SimpleHTTPRequestHandler
 import socketserver
-import webview
 
 # 簡易記憶體快取：避免重複 TTS 請求 Google
 _tts_cache = {}
@@ -42,7 +42,14 @@ def get_writable_dir():
     return os.path.dirname(os.path.abspath(__file__))
 
 
-DB_PATH = os.path.join(get_writable_dir(), "thai_words.db")
+def get_db_path():
+    bundled_db = os.path.join(get_base_path(), "thai_words.db")
+    if os.path.exists(bundled_db):
+        return bundled_db
+    return os.path.join(get_writable_dir(), "thai_words.db")
+
+
+DB_PATH = get_db_path()
 
 
 def query_words():
@@ -103,6 +110,42 @@ def fetch_tts(text):
     return data
 
 
+def query_tts_audio(text):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT audio FROM tts_audio WHERE text=?", (text,))
+        row = cur.fetchone()
+    except sqlite3.OperationalError:
+        row = None
+    conn.close()
+    if row and row[0]:
+        return bytes(row[0])
+    return None
+
+
+def save_tts_audio(text, audio_data):
+    if not text or not audio_data:
+        return
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS tts_audio (
+            text TEXT PRIMARY KEY,
+            audio BLOB NOT NULL,
+            source TEXT DEFAULT 'google_tts',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cur.execute(
+        "INSERT INTO tts_audio(text, audio) VALUES(?, ?) "
+        "ON CONFLICT(text) DO UPDATE SET audio=excluded.audio, created_at=CURRENT_TIMESTAMP",
+        (text, audio_data),
+    )
+    conn.commit()
+    conn.close()
+
+
 def query_cons_audio(cp_hex):
     """依 codepoint hex（如 '0e0d'）查 cons_audio 表的字母誦讀音訊。"""
     try:
@@ -114,6 +157,25 @@ def query_cons_audio(cp_hex):
     # 容錯：表不存在時回 None
     try:
         cur.execute("SELECT audio FROM cons_audio WHERE char=?", (char,))
+        row = cur.fetchone()
+    except sqlite3.OperationalError:
+        row = None
+    conn.close()
+    if row and row[0]:
+        return bytes(row[0])
+    return None
+
+
+def query_char_audio(cp_hex):
+    """依 codepoint hex（如 '0e33'）查 char_audio 表的一般字元音訊。"""
+    try:
+        char = chr(int(cp_hex, 16))
+    except (ValueError, TypeError):
+        return None
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT audio FROM char_audio WHERE char=?", (char,))
         row = cur.fetchone()
     except sqlite3.OperationalError:
         row = None
@@ -138,6 +200,8 @@ class BackendHandler(SimpleHTTPRequestHandler):
             self._serve_words()
         elif self.path.startswith("/api/cons_audio"):
             self._serve_cons_audio()
+        elif self.path.startswith("/api/char_audio"):
+            self._serve_char_audio()
         elif self.path.startswith("/api/tts"):
             self._serve_tts()
         elif self.path.startswith("/api/audio"):
@@ -177,7 +241,11 @@ class BackendHandler(SimpleHTTPRequestHandler):
         if not text:
             self.send_error(400, "Missing text")
             return
-        data = fetch_tts(text)
+        data = query_tts_audio(text)
+        if not data:
+            data = fetch_tts(text)
+            if data:
+                save_tts_audio(text, data)
         if not data:
             self.send_error(502, "TTS upstream failed")
             return
@@ -187,6 +255,22 @@ class BackendHandler(SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "max-age=86400")
         self.end_headers()
         self.wfile.write(data)
+
+    def _serve_char_audio(self):
+        params = parse_qs(urlparse(self.path).query)
+        if "cp" not in params:
+            self.send_error(400, "Missing cp")
+            return
+        audio_data = query_char_audio(params["cp"][0])
+        if not audio_data:
+            self.send_error(404, "Not found")
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "audio/mpeg")
+        self.send_header("Content-Length", len(audio_data))
+        self.send_header("Cache-Control", "max-age=86400")
+        self.end_headers()
+        self.wfile.write(audio_data)
 
     def _serve_cons_audio(self):
         params = parse_qs(urlparse(self.path).query)
@@ -209,7 +293,16 @@ class BackendHandler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    PORT = 8000
+    parser = argparse.ArgumentParser(description="Run Thai typing practice locally.")
+    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument(
+        "--serve-only",
+        action="store_true",
+        help="Start the local HTTP server without opening a pywebview window.",
+    )
+    args = parser.parse_args()
+
+    PORT = args.port
     URL = f"http://localhost:{PORT}"
 
     os.chdir(get_base_path())
@@ -221,15 +314,26 @@ if __name__ == "__main__":
 
     socketserver.TCPServer.allow_reuse_address = True
     httpd = socketserver.TCPServer(("", PORT), BackendHandler)
-    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    if args.serve_only:
+        print(f"[INFO] HTTP server running at {URL}")
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            print("\n[INFO] HTTP server stopped.")
+        finally:
+            httpd.server_close()
+    else:
+        import webview
 
-    window = webview.create_window(
-        title="泰文輸入練習",
-        url=URL,
-        width=1280,
-        height=820,
-        resizable=True,
-        min_size=(800, 600),
-    )
-    webview.start()
-    httpd.shutdown()
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        webview.create_window(
+            title="泰文輸入練習",
+            url=URL,
+            width=1280,
+            height=820,
+            resizable=True,
+            min_size=(800, 600),
+        )
+        webview.start()
+        httpd.shutdown()
+        httpd.server_close()
