@@ -22,7 +22,7 @@ const LESSON_CONFIG = {
 };
 
 let currentLesson = 1;
-let consecutiveCorrect = 0;
+let masteredChars = new Set();  // 課程 1-2：本輪已無誤完成的字符
 let charPool = [];
 const LCC = { cons: [], vow: [], tone: [] };
 // ─────────────────────────────────────────────────────────
@@ -304,7 +304,7 @@ function loadProgress() {
 
 function startSession() {
     updateLessonUI();
-    consecutiveCorrect = 0;
+    masteredChars.clear();
 
     if (currentLesson === 5) {
         const total = Math.min(1000, words.length);
@@ -361,6 +361,14 @@ function advanceSession() {
 
 function endRound() {
     if (currentLesson !== 5) {
+        // 課程 3-4：整輪零錯誤 → 跳下一課
+        if (currentLesson >= 3 && roundErrors === 0) {
+            currentLesson++;
+            const sel = document.getElementById('lesson-select');
+            if (sel) sel.value = String(currentLesson);
+            setTimeout(() => startSession(), 500);
+            return;
+        }
         startCharRound();
         return;
     }
@@ -566,23 +574,28 @@ function handleKeyDown(e) {
             state.isFinished = true;
             updateStats();
             if (currentLesson !== 5) {
-                // 字符課程：播音確認 → 檢查自動跳課 → 800ms 後進下一題
+                // 字符課程：播音確認 → 課程 1-2 追蹤逐字熟練度 → 800ms 後進下一題
                 const noError = !wordErrorFlag;
                 playComboAudio(state.targetText).then(() => {
-                    if (noError) {
-                        consecutiveCorrect++;
-                    } else {
-                        consecutiveCorrect = 0;
+                    if (currentLesson <= 2) {
+                        // 課程 1-2：追蹤每個字符是否無誤完成
+                        if (noError) {
+                            masteredChars.add(state.targetText);
+                        } else {
+                            masteredChars.delete(state.targetText);
+                        }
+                        // 全部字符都無誤完成 → 跳下一課
+                        if (masteredChars.size >= charPool.length) {
+                            masteredChars.clear();
+                            currentLesson++;
+                            const sel = document.getElementById('lesson-select');
+                            if (sel) sel.value = String(currentLesson);
+                            setTimeout(() => startSession(), 900);
+                            return;
+                        }
                     }
-                    if (consecutiveCorrect >= 10 && currentLesson < 5) {
-                        consecutiveCorrect = 0;
-                        currentLesson++;
-                        const sel = document.getElementById('lesson-select');
-                        if (sel) sel.value = String(currentLesson);
-                        setTimeout(() => startSession(), 900);
-                    } else {
-                        setTimeout(() => advanceSession(), 800);
-                    }
+                    // 課程 3-4 的跳課由 endRound() 處理（整輪零錯誤）
+                    setTimeout(() => advanceSession(), 800);
                 });
             } else {
                 // 單字課程：播字元音 → 1秒後播整字音訊 → 2秒後進下一字
@@ -669,7 +682,6 @@ if (lessonSelect) {
     lessonSelect.value = String(currentLesson);
     lessonSelect.addEventListener('change', () => {
         state.isFinished = true;
-        consecutiveCorrect = 0;
         currentLesson = Number(lessonSelect.value);
         startSession();
     });
