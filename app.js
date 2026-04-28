@@ -244,16 +244,19 @@ function initLCC() {
 
 function buildCharPool(lesson) {
     if (lesson === 1) {
-        // 課程 1：依 CONSONANT_INFO 的傳統順序（ก→ฮ）建池
-        // id 對應到子音名稱（如 ไก่）的 word.id，用於播放名稱音訊
-        const nameToId = new Map(words.map(w => [w.thai_word, w.id]));
-        return Object.entries(CONSONANT_INFO).map(([char, info]) => ({
-            id: nameToId.get(info.name) ?? null,
-            thai_word: char,
-            chinese: `${char}.${info.name} (${info.rom}) ${info.meaning}・${info.cls}`,
-            english: '',
-            nameWord: info.name,
-        }));
+        // 課程 1：依 CONSONANT_INFO 傳統順序，每個子音音訊為「字母名+名稱詞」
+        // 路徑為 audio/cons_<codepoint>.mp3（由 add_consonant_audio.py 產生）
+        return Object.entries(CONSONANT_INFO).map(([char, info]) => {
+            const cp = char.codePointAt(0).toString(16).padStart(4, '0');
+            return {
+                id: null,
+                thai_word: char,
+                chinese: `${char}.${info.name} (${info.rom}) ${info.meaning}・${info.cls}`,
+                english: '',
+                nameWord: info.name,
+                audioUrl: `audio/cons_${cp}.mp3`,
+            };
+        });
     }
     // 課程 2：母音（從 keyboardLayout 提取，去重）
     const seen = new Set();
@@ -329,12 +332,11 @@ async function playComboAudio(text) {
     }
 }
 
-/** 課程音訊播放：課程 1 播子音名稱（หนู / ใบไม้），其餘課程播字符序列 */
+/** 課程音訊播放：課程 1 播子音字母誦讀（如「ยอ หญิง」「นอ หนู」），其餘課程播字符序列 */
 function playLessonAudio() {
-    if (currentLesson === 1 && state.word && state.word.id) {
+    if (currentLesson === 1 && state.word && state.word.audioUrl) {
         return new Promise(resolve => {
-            const url = USE_API ? `/api/audio?id=${state.word.id}` : `audio/${state.word.id}.mp3`;
-            const audio = new Audio(url);
+            const audio = new Audio(state.word.audioUrl);
             audio.addEventListener('ended', resolve, { once: true });
             audio.addEventListener('error', resolve, { once: true });
             audio.play().catch(resolve);
